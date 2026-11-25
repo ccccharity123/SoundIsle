@@ -174,7 +174,10 @@ function openHub(page='library'){
   fitHub();select(page);launcher?.wake();launcher?.onPanelChange();
 }
 shared.openPlayerAux=openHub;
-shared.onPlayerClose=()=>island.setAttribute('aria-expanded','false');
+shared.onPlayerClose=()=>{
+  island.setAttribute('aria-expanded','false');
+  launcher?.onPanelChange();
+};
 function openPlayer(){
   if (!music)return openHub('library');
   close();music.openPlayer();island.setAttribute('aria-expanded','true');launcher?.onPanelChange();
@@ -268,16 +271,14 @@ async function boot(){
       <option value="always">始终显示</option>
       <option value="auto">自动隐藏 · 触碰时唤醒</option>
       <option value="edge">贴边隐藏 · 保留把手</option>
-      <option value="hidden">完全隐藏 · 保留快捷入口</option>
+      <option value="hidden">完全隐藏 · 无其他入口时保留贴边把手</option>
     </select></label>
     <label>自动隐藏等待<select data-launch-delay><option value="3">3 秒</option><option value="5">5 秒</option><option value="10">10 秒</option><option value="20">20 秒</option></select></label>
-    <label class="si-launch-toggle"><input type="checkbox" data-launch-top>酒馆顶栏音乐按钮</label>
-    <label class="si-launch-toggle"><input type="checkbox" data-launch-composer>输入栏音乐按钮</label>
     <label class="si-launch-toggle"><input type="checkbox" data-launch-shortcut>键盘 Alt + M 唤起</label>
     <label class="si-launch-toggle"><input type="checkbox" data-launch-gesture>屏幕边缘双击唤起（实验功能）</label>
-    <p class="cap-float-hint">隐藏只影响界面，不停止播放。完全隐藏时至少保留一个可见按钮，避免播放器失联。</p>`;
+    <p class="cap-float-hint">隐藏只影响界面，不停止播放。完全隐藏且未开启快捷键或边缘双击时，会保留贴边小把手，避免播放器失联。</p>`;
   floating.append(wakeSettings);
-  const launchControls={policy:wakeSettings.querySelector('[data-launch-policy]'),delay:wakeSettings.querySelector('[data-launch-delay]'),top:wakeSettings.querySelector('[data-launch-top]'),composer:wakeSettings.querySelector('[data-launch-composer]'),shortcut:wakeSettings.querySelector('[data-launch-shortcut]'),gesture:wakeSettings.querySelector('[data-launch-gesture]')};
+  const launchControls={policy:wakeSettings.querySelector('[data-launch-policy]'),delay:wakeSettings.querySelector('[data-launch-delay]'),shortcut:wakeSettings.querySelector('[data-launch-shortcut]'),gesture:wakeSettings.querySelector('[data-launch-gesture]')};
   const currentLaunch=launcher.settings();
   for(const [key,element] of Object.entries(launchControls)){
     if(element.type==='checkbox')element.checked=currentLaunch[key];
