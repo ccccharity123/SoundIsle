@@ -1,0 +1,10 @@
+{
+  "display_name": "声屿 · Sound Isle（独立播放器）",
+  "loading_order": 110,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "Sound Isle / Capricorn",
+  "version": "1.0.0"
+}
