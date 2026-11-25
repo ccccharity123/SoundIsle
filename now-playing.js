@@ -332,9 +332,14 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
       volumeButton.title = '音量 ' + percent;
     }
     const supports = audioState.volumeSupported !== false;
-    const hint = supports ? '' : '当前音源仅支持系统音量键';
+    const hint = supports ? '' : '当前音源仅能静音／恢复；连续音量请用设备音量键。';
     if (volumeNote.textContent !== hint) volumeNote.textContent = hint;
-    volumeSlider.title = supports ? '音量' : '当前音源可能需要系统音量键';
+    volumeSlider.title = supports ? '音量' : '静音／恢复（连续音量由系统控制）';
+    // Keep a functional 0/100 mute toggle in the fallback instead of displaying
+    // a disabled control or a misleading continuous-volume slider.
+    volumeSlider.disabled = false;
+    volumeSlider.step = supports ? '0.01' : '1';
+    volumeSlider.setAttribute('aria-disabled', 'false');
     const muted = String(value === 0);
     if (volumeButton.dataset.muted !== muted) {
       volumeButton.dataset.muted = muted;
@@ -776,7 +781,9 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
       manualScrollUntil = 0;
       showTab(tab || (size === 'large' ? 'lyrics' : ''));
       refresh();
-      animateFrom(island && island.getBoundingClientRect());
+      const openingRect=W.__soundIsleOpenOrigin || (island && island.getBoundingClientRect());
+      delete W.__soundIsleOpenOrigin;
+      animateFrom(openingRect);
     },
     close: closePanel,
     isOpen: () => !panel.hidden,

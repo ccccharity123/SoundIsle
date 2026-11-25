@@ -13,7 +13,6 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
   const D = root.ownerDocument, W = D.defaultView, key = 'capricorn_appearance_v1';
   const defaults = {
     material: 'glass',
-    playerTheme: 'default',
     playerBgColor: '',
     bgSource: 'auto', coverShape: 'rounded', coverSize: 250, coverPadding: 0, coverOpacity: 100, coverFit: 'cover', coverPlate: 'none', coverRadius: 18, coverBorder: 0, coverBorderColor: '#ffffff', coverBorderStyle: 'solid', coverShadow: 0, bgSaturation: 100, bgShade: 15,
     playerBgOpacity: 82,
@@ -33,6 +32,8 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
   };
   let p = { ...defaults };
   try { p = { ...p, ...JSON.parse(W.localStorage.getItem(key) || '{}') }; } catch {}
+  // Legacy color themes are no longer supported. Keep personal CSS, fonts and backgrounds.
+  delete p.playerTheme;
 
   let installedFonts = [];
   let bgImageUrl = '';
@@ -62,56 +63,17 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
     }
   };
 
-  const PLAYER_PRESETS = {
-    crystal: {
-      playerIslandCss: 'border: 1px solid rgba(255,255,255,0.55);\nbox-shadow: inset 0 1px 2px rgba(255,255,255,0.8), 0 10px 30px rgba(0,0,0,0.2);',
-      playerThemeCss: '--am-accent: #0a84ff;\nborder-radius: 28px;',
-      playerCustomCss: ''
-    },
-    aurora: {
-      playerIslandCss: 'background: linear-gradient(135deg, rgba(120,210,255,0.45), rgba(190,130,255,0.45));\nborder-color: rgba(255,255,255,0.45);',
-      playerThemeCss: '--am-accent: #7c5cff;\nbackground: linear-gradient(155deg, rgba(28,32,54,0.82), rgba(45,26,58,0.82));',
-      playerCustomCss: '.cap-island[data-playing="true"] { border-radius: 18px; }'
-    },
-    minimal: {
-      playerIslandCss: 'box-shadow: 0 4px 16px rgba(0,0,0,0.12);',
-      playerThemeCss: 'border-radius: 20px;\n--am-accent: #1d1d1f;',
-      playerCustomCss: '.cap-island-orb { background: transparent !important; box-shadow: none !important; }'
-    },
-    neon: {
-      playerIslandCss: 'border: 1px solid rgba(255, 78, 138, 0.7);\nbox-shadow: 0 0 18px rgba(255, 78, 138, 0.35);',
-      playerThemeCss: '--am-accent: #ff4e8a;\nborder: 1px solid rgba(255, 78, 138, 0.45);',
-      playerCustomCss: '.cap-island[data-playing="true"] { letter-spacing: 0.03em; }'
-    }
-  };
-
   function buildPlayerForm() {
     const el = D.createElement('section');
     el.className = 'cap-appearance cap-player-appearance';
     el.innerHTML = `
-      <h4>播放器外观与主题</h4>
+      <h4>播放器外观 · 纯净液态玻璃</h4>
       <div class="cap-appearance-grid">
         <label>声屿材质
           <select data-pref="material" data-cap-select="segment">
             <option value="glass">液态玻璃</option>
             <option value="frost">磨砂玻璃</option>
             <option value="solid">实色</option>
-          </select>
-        </label>
-        <label>播放器主题
-          <select data-pref="playerTheme" data-cap-select="search">
-            <option value="default" data-cap-swatch="#ededed">白 · 原生</option>
-            <option value="black" data-cap-swatch="#272727">黑 · 原生</option>
-            <option value="silverblue" data-cap-swatch="#9ab0c9">余音 · 银蓝手账</option>
-            <optgroup label="旧版主题">
-              <option value="mist" data-cap-swatch="#a6b7ef">晨雾</option>
-              <option value="ocean" data-cap-swatch="#439bc3">海洋</option>
-              <option value="sunset" data-cap-swatch="#e39a63">落日</option>
-              <option value="sakura" data-cap-swatch="#da91b4">樱花</option>
-              <option value="forest" data-cap-swatch="#7db39a">森林</option>
-              <option value="gold" data-cap-swatch="#b3935a">鎏金</option>
-              <option value="cyber" data-cap-swatch="#a278cc">赛博</option>
-            </optgroup>
           </select>
         </label>
       </div>
@@ -158,15 +120,8 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
       </div>
 
       <details class="cap-css-editor">
-        <summary>自定义 CSS（灵动岛形态 & 播放器主题）</summary>
+        <summary>自定义 CSS（灵动岛形态 & 播放器面板）</summary>
         <p class="cap-css-hint">支持实时预览。可定制 <code>.cap-island</code>、<code>.cap-island[data-playing="false"]</code>（未播放球体）、<code>.cap-island[data-playing="true"]</code>（播放拉长态）、<code>nav</code> 及 <code>.cap-full-player</code>。</p>
-        <div class="cap-css-presets">
-          <span>快捷模板：</span>
-          <button type="button" data-player-preset="crystal">晶透光球</button>
-          <button type="button" data-player-preset="aurora">极光胶囊</button>
-          <button type="button" data-player-preset="minimal">极简素雅</button>
-          <button type="button" data-player-preset="neon">霓虹微光</button>
-        </div>
         <label>灵动岛样式声明（无需大括号）
           <textarea data-pcss="playerIslandCss" rows="3" placeholder="border-radius: 999px;\n--island-orb-size: 46px;"></textarea>
         </label>
@@ -388,7 +343,7 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
     if (disposed) return;
     const b = D.body;
     b.dataset.capMaterial = draft.material;
-    b.dataset.capPlayerTheme = draft.playerTheme || 'default';
+    b.dataset.capPlayerTheme = 'default';
     b.dataset.capLook = themeSelect.value === 'auto' ? (media.matches ? 'dark' : 'light') : themeSelect.value;
     b.dataset.capPaper = draft.paper;
     b.dataset.capPaperMode = draft.paperMode === 'auto' ? (media.matches ? 'dark' : 'light') : draft.paperMode;
@@ -404,7 +359,6 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
     b.dataset.capCoverShape = draft.coverShape;
     b.dataset.capCoverPlate=draft.coverPlate; const vars = {'cover-size':Number(draft.coverSize)+'px','cover-padding':Number(draft.coverPadding)+'px','cover-opacity':Number(draft.coverOpacity)/100,'cover-fit':draft.coverFit==='contain'?'contain':'cover','cover-radius':Number(draft.coverRadius)+'px','cover-border':Number(draft.coverBorder)+'px','cover-color':/^#[0-9a-f]{6}$/i.test(draft.coverBorderColor)?draft.coverBorderColor:'#ffffff','cover-style':['solid','dashed','double'].includes(draft.coverBorderStyle)?draft.coverBorderStyle:'solid','cover-shadow':Number(draft.coverShadow)+'px','bg-saturation':Number(draft.bgSaturation)+'%','bg-shade':Number(draft.bgShade)/100};
     for(const [k,v] of Object.entries(vars)) D.documentElement.style.setProperty('--cap-'+k,v);
-    if(draft.playerTheme==='black')b.dataset.capLook='dark';
 
     const bgColor = safeBgColor(draft.playerBgColor);
     const opacity = Math.min(1, Math.max(0, Number(draft.playerBgOpacity ?? 82) / 100));
@@ -547,7 +501,7 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
     box.querySelector(`[${resetAttr}]`).onclick = () => commit(Object.fromEntries(keys.map(k=>[k,''])));
     for (const btn of box.querySelectorAll(`[${presetAttr}]`)) btn.onclick = () => commit(presets[btn.getAttribute(presetAttr)]);
   }
-  bindCss(playerBox,'data-pcss',['playerIslandCss','playerThemeCss','playerCustomCss'],PLAYER_PRESETS,'data-player-preset','data-psave','data-preset-reset','data-pstatus');
+  bindCss(playerBox,'data-pcss',['playerIslandCss','playerThemeCss','playerCustomCss'],{},'data-player-preset','data-psave','data-preset-reset','data-pstatus');
   bindCss(noteBox,'data-css',['side','note','custom'],NOTE_PRESETS,'data-preset','data-save','data-reset','data-status');
   const backgroundBox = D.createElement('section');
   backgroundBox.className = 'cap-appearance';

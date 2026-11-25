@@ -94,10 +94,45 @@ function disposeAudio() {
   D.removeEventListener('click',unlockAudio,true);
 }
 if(/iPhone|iPad|iPod/.test(W.navigator.userAgent)||(W.navigator.platform==='MacIntel'&&W.navigator.maxTouchPoints>1))nativeVolume=false;
-function unlockAudio(){if(nativeVolume||mobileMedia)return;try{if(!audioContext){const C=W.AudioContext||W.webkitAudioContext;if(!C)return;audioContext=new C();gainNode=audioContext.createGain();audioContext.createMediaElementSource(graphAudio).connect(gainNode);gainNode.connect(audioContext.destination)}if(audioContext.state==='suspended')audioContext.resume().catch(()=>{})}catch{gainNode=null}}
+// iOS often accepts mute but ignores intermediate HTMLMediaElement.volume values.
+// A running Web Audio graph must be selected before loading the song; an asynchronous
+// AudioContext.resume() must be given a bounded chance to complete first.
+let resumePending=null;
+function unlockAudio(){
+ if(nativeVolume||disposed)return Promise.resolve(false);
+ try{
+  if(!audioContext){
+   const C=W.AudioContext||W.webkitAudioContext;
+   if(!C)return Promise.resolve(false);
+   audioContext=new C();gainNode=audioContext.createGain();
+   audioContext.createMediaElementSource(graphAudio).connect(gainNode);
+   gainNode.connect(audioContext.destination);
+  }
+  if(audioContext.state==='running')return Promise.resolve(true);
+  if(audioContext.state!=='suspended')return Promise.resolve(false);
+  if(!resumePending){
+   resumePending=Promise.resolve(audioContext.resume()).then(()=>audioContext?.state==='running',()=>false)
+     .finally(()=>{resumePending=null});
+  }
+  return resumePending;
+ }catch(error){
+  gainNode=null;trace('Web Audio 初始化失败：'+(error?.message||'未知错误'));
+  return Promise.resolve(false);
+ }
+}
 D.addEventListener('pointerdown',unlockAudio,true);D.addEventListener('touchend',unlockAudio,true);D.addEventListener('click',unlockAudio,true);
-function chooseAudio(alive){if(!alive())return false;activeAudio=!mobileMedia&&!nativeVolume&&gainNode&&audioContext?.state==='running'?graphAudio:nativeAudio;return true}
-function volumeCapability(){return nativeVolume||activeAudio===graphAudio&&audioContext?.state==='running'}
+async function chooseAudio(alive,forceNative=false){
+ if(!alive())return false;
+ if(!forceNative&&!nativeVolume){
+  // Never let a suspended/resuming audio graph stall normal playback indefinitely.
+  await Promise.race([unlockAudio(),new Promise(resolve=>setTimeout(()=>resolve(false),500))]);
+ }
+ if(!alive())return false;
+ activeAudio=!forceNative&&!nativeVolume&&gainNode&&audioContext?.state==='running'?graphAudio:nativeAudio;
+ return true;
+}
+function volumeCapability(){return nativeVolume||activeAudio===graphAudio&&!!gainNode&&audioContext?.state==='running'}
+function volumeBackend(){return volumeCapability()?(activeAudio===graphAudio?'Web Audio 增益':'原生音量'):'仅支持静音 / 系统音量'}
 let queue=[],queueIndex=-1,queueRevision=0,queuePlaylistName="",playMode=db.settings.playMode||'order',audioError='';
 function validUrl(u){try{let x=new URL(String(u||''));return ['https:','http:'].includes(x.protocol)?x.href:''}catch{return ''}}
 function durationText(v){if(!Number.isFinite(v))return '00:00';return String(Math.floor(v/60)).padStart(2,'0')+':'+String(Math.floor(v%60)).padStart(2,'0')}
@@ -296,7 +331,7 @@ async function playQueued(index,resumeAt=0,preferOnline=false){
  if(!audio.paused&&!audio.ended){await fadeTo(0,320,epoch);if(!alive())return;}
  resumePosition=resumeAt;playing=t;audioError='';actualQuality='';playbackLog=[];coverState='未检查';clearAudio();render();
  const deadline=Date.now()+95000;
- async function candidate(url,quality,forceNative=false){if(!alive())return false;clearAudio();if(!chooseAudio(alive))return false;if(forceNative)activeAudio=nativeAudio;applyGain(0);audio.src=url;actualQuality=quality;trace('正在加载：'+quality);try{await attemptPlay(Math.max(1,Math.min(12000,deadline-Date.now())),signal);if(!alive())return false;if(resumeAt>0&&Number.isFinite(audio.duration))audio.currentTime=Math.min(resumeAt,audio.duration);resumePosition=0;started=true;void fadeTo(1,650,epoch);return true}catch(e){if(!alive())return false;if(e.name==='NotAllowedError'){trace('音源已准备，请再次点击播放');throw e}trace(quality+'：'+(audio.error?'媒体错误 '+audio.error.code:e.name==='AbortError'?'加载中断':e.message==='音频加载超时'?e.message:'播放失败 '+e.name));const retry=activeAudio===graphAudio;clearAudio();if(retry&&alive())return candidate(url,quality,true);return false}}
+ async function candidate(url,quality,forceNative=false){if(!alive())return false;clearAudio();if(!await chooseAudio(alive,forceNative))return false;applyGain(0);audio.src=url;actualQuality=quality;trace('正在加载：'+quality);try{await attemptPlay(Math.max(1,Math.min(12000,deadline-Date.now())),signal);if(!alive())return false;if(resumeAt>0&&Number.isFinite(audio.duration))audio.currentTime=Math.min(resumeAt,audio.duration);resumePosition=0;started=true;void fadeTo(1,650,epoch);return true}catch(e){if(!alive())return false;if(e.name==='NotAllowedError'){trace('音源已准备，请再次点击播放');throw e}trace(quality+'：'+(audio.error?'媒体错误 '+audio.error.code:e.name==='AbortError'?'加载中断':e.message==='音频加载超时'?e.message:'播放失败 '+e.name));const retry=activeAudio===graphAudio;clearAudio();if(retry&&alive())return candidate(url,quality,true);return false}}
  async function loadCover(id){
    if(validUrl(t.coverUrl)){coverState='已有地址';return;}
    try {
@@ -321,7 +356,7 @@ async function playQueued(index,resumeAt=0,preferOnline=false){
  }else if(!ok&&!manual)throw Error('请启用网易云并填写访问密钥');if(!alive())return;if(!ok)throw Error('未能加载完整音源，请查看播放诊断');resolving=false;rememberPlay(t);storePlayback();updateMedia();render();trace('播放成功：'+actualQuality+(volumeCapability()?'':' · 当前音源请使用系统音量键'));
  }catch(e){if(!alive())return;resolving=false;audioError=e.name==='NotAllowedError'?'系统要求再次点击播放':e.message;render();trace(audioError)}
 }
-function diagnostic(){return ['声屿 2.7.5','系统媒体会话：'+(mediaSession?'支持':'不支持'),'页面状态：'+D.visibilityState,'聊天：'+chatId(),'跟随状态：'+String(observedStory)+' / '+String(pendingScope),'音量引擎：'+(activeAudio===graphAudio?'Web Audio':nativeVolume?'原生':'系统限制'),'音频上下文：'+(audioContext?.state||'未创建'),'歌曲：'+(playing?.title||'无'),'网易云ID：'+(playing?.neteaseId||'无'),'封面：'+coverState,'音质：'+actualQuality,'readyState：'+audio.readyState,'networkState：'+audio.networkState,'媒体错误：'+(audio.error?.code||0),'状态：'+audioError,...playbackLog].join('\n')}
+function diagnostic(){return ['声屿 2.7.5','系统媒体会话：'+(mediaSession?'支持':'不支持'),'页面状态：'+D.visibilityState,'聊天：'+chatId(),'跟随状态：'+String(observedStory)+' / '+String(pendingScope),'音量引擎：'+volumeBackend(),'音频上下文：'+(audioContext?.state||'未创建'),'歌曲：'+(playing?.title||'无'),'网易云ID：'+(playing?.neteaseId||'无'),'封面：'+coverState,'音质：'+actualQuality,'readyState：'+audio.readyState,'networkState：'+audio.networkState,'媒体错误：'+(audio.error?.code||0),'状态：'+audioError,...playbackLog].join('\n')}
 function nextTrack(direction=1){if(!queue.length){let tracks=audioTracks();if(!tracks.length)return;queue=tracks.slice();queueRevision++;queueIndex=0;queuePlaylistName=db.playlists[selected]?.name||'声屿';return playQueued(0)}let i=queueIndex;if(playMode==='shuffle'&&queue.length>1){let n=Math.floor(Math.random()*(queue.length-1));i=n>=i?n+1:n}else i=(i+direction+queue.length)%queue.length;playQueued(i)}
 async function toggleAudio(){
   if(resolving){stopPlaybackWork();clearAudio();trace('已取消加载，再点播放重试');render();return;}
@@ -1200,14 +1235,14 @@ sync();
 render();
 fullPlayer=mountNowPlaying({
   D,W,audio,shared,
-  state:()=>({playing,queue,queueRevision,queueIndex,actualQuality,preferredQuality:db.settings.preferredQuality||'jymaster',canChangeQuality:!!playing?.neteaseId&&(!validUrl(playing?.audioUrl)||!!actualQuality&&actualQuality!=='手动音源')&&!!shared.online?.ready(),playMode,resolving,started,statusText,userVolume:targetVolume(),volumeSupported:volumeCapability(),diagnostic:()=>diagnostic()}),
+  state:()=>({playing,queue,queueRevision,queueIndex,actualQuality,preferredQuality:db.settings.preferredQuality||'jymaster',canChangeQuality:!!playing?.neteaseId&&(!validUrl(playing?.audioUrl)||!!actualQuality&&actualQuality!=='手动音源')&&!!shared.online?.ready(),playMode,resolving,started,statusText,userVolume:targetVolume(),volumeSupported:volumeCapability(),volumeBackend:volumeBackend(),diagnostic:()=>diagnostic()}),
   quality(level){
     if(!qualityOrder.includes(level)||resolving||!playing?.neteaseId||(validUrl(playing.audioUrl)&&actualQuality==='手动音源')||!shared.online?.ready())return;
     db.settings.preferredQuality=level;
     save();
     void playQueued(queueIndex,audio.currentTime||resumePosition||0,true);
   },
-  volume(value){db.settings.volume=Math.max(0,Math.min(1,value));applyGain(fadeGain);save()},
+  volume(value){const requested=Math.max(0,Math.min(1,Number(value)||0));db.settings.volume=!volumeCapability()?(requested<=0.01?0:1):requested;applyGain(fadeGain);save()},
   mode(){playMode=playMode==='order'?'shuffle':playMode==='shuffle'?'one':'order';db.settings.playMode=playMode;save()},
   toggle:toggleAudio,next:nextTrack,play:playQueued,
   move(from,to){

@@ -4,7 +4,8 @@ import { startMusic } from './music.js';
 import { mountCloud } from './cloud.js';
 import { mountNetease } from './netease.js';
 import { mountAppearance } from './appearance.js';
-import { mountMobile } from './mobile.js';
+import { mountMobile, readFloatSettings } from './mobile.js';
+import { mountLauncher } from './ui-launcher.js';
 import { mountSelects, nativeSelectsEnabled, setNativeSelects, refreshSelect } from './ui-select.js';
 import { mountSettings } from './ui-settings.js';
 import { popover } from './ui-popover.js';
@@ -14,6 +15,7 @@ import { createScheduler, maintenancePriority } from './scheduler.js';
 const W = window, D = document;
 try { W.__soundIsleStandalone?.destroy?.(); } catch (error) { console.warn('[声屿] 上次实例清理失败', error); }
 const root = D.createElement('div');
+root.dataset.floatMode = readFloatSettings().mode;
 root.id = 'capricorn-hub';
 root.dataset.soundIsleStandalone = 'true';
 if (W.navigator.deviceMemory > 0 && W.navigator.deviceMemory <= 4) D.body.dataset.capVisualLite = '';
@@ -73,7 +75,7 @@ const chatIdentity = () => {
 };
 const scope = () => chatIdentity().scope;
 const shared = { flags: {music:true,memory:false}, scope, chatIdentity, recallLocked: false };
-let destroyed = false, music, cloud, cleanupNetease, appearance, cleanupMobile, settingsUi;
+let destroyed = false, music, cloud, cleanupNetease, appearance, cleanupMobile, launcher, settingsUi;
 let selectAdapter, timer, selectedTab = 'library', artworkImage, artworkFrame = 0, artworkEpoch = 0;
 const scheduler = createScheduler(W, () => D.hidden);
 shared.maintenance = scheduler;
@@ -128,6 +130,7 @@ shared.onIslandUpdate = ({playing,text,title,coverUrl:cover,translation}) => {
   island.dataset.bilingual=String(Boolean(translate));
   if (text && playing && islandLyric.textContent!==text) islandLyric.textContent=text;
   cleanupMobile?.fit?.();
+  launcher?.onPlayback(playing);
 };
 
 const libraryNav=D.createElement('div');
@@ -164,16 +167,17 @@ function close() {
   nav.hidden=true;
   root.dataset.panelOpen='false';
   island.setAttribute('aria-expanded','false');
+  launcher?.onPanelChange();
 }
 function openHub(page='library'){
   nav.hidden=false;root.dataset.panelOpen='true';island.setAttribute('aria-expanded','true');
-  fitHub();select(page);
+  fitHub();select(page);launcher?.wake();launcher?.onPanelChange();
 }
 shared.openPlayerAux=openHub;
 shared.onPlayerClose=()=>island.setAttribute('aria-expanded','false');
 function openPlayer(){
   if (!music)return openHub('library');
-  close();music.openPlayer();island.setAttribute('aria-expanded','true');
+  close();music.openPlayer();island.setAttribute('aria-expanded','true');launcher?.onPanelChange();
 }
 island.onclick=()=>{
   if(cleanupMobile?.consumeDrag())return;
@@ -210,6 +214,7 @@ function destroy(){
   W.visualViewport?.removeEventListener('resize',fitHub);
   W.visualViewport?.removeEventListener('scroll',fitHub);
   scheduler.close();
+  launcher?.destroy();
   cleanupMobile?.destroy();
   cleanupNetease?.();
   cloud?.destroy();
@@ -232,6 +237,58 @@ async function boot(){
   content.append(music.root);
   cloud=mountCloud(content,shared,music);
   cleanupMobile=mountMobile({root,island,nav,onResume:tick});
+  launcher=mountLauncher({root,island,nav,onOpen:openPlayer,isPlayerOpen:()=>Boolean(music?.isPlayerOpen())});
+  const floating=D.createElement('section');
+  floating.dataset.capSettingsSection='appearance';
+  floating.className='cap-float-settings';
+  floating.innerHTML=`<h4>悬浮控件</h4>
+    <label>显示样式<select data-float-mode data-cap-select="segment">
+      <option value="orb">悬浮球 · 始终只显示小球</option>
+      <option value="island">灵动岛 · 播放时展开歌词</option>
+    </select></label>
+    <label>停靠位置<select data-float-dock>
+      <option value="free">自由拖动</option>
+      <option value="fixed">锁定当前位置</option>
+      <option value="top">酒馆顶栏正中下方 · 自适应</option>
+      <option value="composer">输入栏正中上方 · 自适应</option>
+    </select></label>
+    <p class="cap-float-hint">自由拖动可保存位置；锁定会保持当前位置；自动停靠将随顶栏、输入框和视口变化更新。</p>`;
+  settings.append(floating);
+  const floatMode=floating.querySelector('[data-float-mode]');
+  const floatDock=floating.querySelector('[data-float-dock]');
+  const initial=cleanupMobile.settings();
+  floatMode.value=initial.mode;
+  floatDock.value=initial.dock;
+  floatMode.addEventListener('change',()=>cleanupMobile.update({mode:floatMode.value}));
+  floatDock.addEventListener('change',()=>cleanupMobile.update({dock:floatDock.value}));
+  const wakeSettings=D.createElement('section');
+  wakeSettings.className='si-launch-settings';
+  wakeSettings.innerHTML=`<h4>隐藏与唤起</h4>
+    <label>悬浮控件显示策略<select data-launch-policy>
+      <option value="always">始终显示</option>
+      <option value="auto">自动隐藏 · 触碰时唤醒</option>
+      <option value="edge">贴边隐藏 · 保留把手</option>
+      <option value="hidden">完全隐藏 · 保留快捷入口</option>
+    </select></label>
+    <label>自动隐藏等待<select data-launch-delay><option value="3">3 秒</option><option value="5">5 秒</option><option value="10">10 秒</option><option value="20">20 秒</option></select></label>
+    <label class="si-launch-toggle"><input type="checkbox" data-launch-top>酒馆顶栏音乐按钮</label>
+    <label class="si-launch-toggle"><input type="checkbox" data-launch-composer>输入栏音乐按钮</label>
+    <label class="si-launch-toggle"><input type="checkbox" data-launch-shortcut>键盘 Alt + M 唤起</label>
+    <label class="si-launch-toggle"><input type="checkbox" data-launch-gesture>屏幕边缘双击唤起（实验功能）</label>
+    <p class="cap-float-hint">隐藏只影响界面，不停止播放。完全隐藏时至少保留一个可见按钮，避免播放器失联。</p>`;
+  floating.append(wakeSettings);
+  const launchControls={policy:wakeSettings.querySelector('[data-launch-policy]'),delay:wakeSettings.querySelector('[data-launch-delay]'),top:wakeSettings.querySelector('[data-launch-top]'),composer:wakeSettings.querySelector('[data-launch-composer]'),shortcut:wakeSettings.querySelector('[data-launch-shortcut]'),gesture:wakeSettings.querySelector('[data-launch-gesture]')};
+  const currentLaunch=launcher.settings();
+  for(const [key,element] of Object.entries(launchControls)){
+    if(element.type==='checkbox')element.checked=currentLaunch[key];
+    else element.value=String(currentLaunch[key]);
+    element.addEventListener('change',()=>{
+      const value=element.type==='checkbox'?element.checked:(key==='delay'?Number(element.value):element.value);
+      const applied=launcher.update({[key]:value});
+      for(const [name,el] of Object.entries(launchControls))
+        if(el.type==='checkbox')el.checked=applied[name];
+    });
+  }
   const services=D.createElement('section');
   services.dataset.capSettingsSection='services';
   services.className='cap-backup';
