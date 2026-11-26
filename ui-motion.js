@@ -64,7 +64,9 @@ export function attachSegmentSlider(container, {
   if (ro) ro.observe(container);
 
   const mo = typeof W.MutationObserver === 'function'
-    ? new W.MutationObserver(() => schedule(false))
+    ? new W.MutationObserver(records => {
+        if (records.some(record => record.target !== thumb && !thumb.contains(record.target))) schedule(false);
+      })
     : null;
   if (mo) {
     mo.observe(container, {
