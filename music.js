@@ -154,6 +154,28 @@ function durationText(v){if(!Number.isFinite(v))return '00:00';return String(Mat
 function audioTracks(){return db.playlists[selected]?.songs||[]}
 let mediaKey='', mediaDiagnostic='尚未注册';
 function updatePosition(){try{const duration=audio.duration;if(!mediaSession)return;if(Number.isFinite(duration)&&duration>0)mediaSession.setPositionState({duration,position:Math.max(0,Math.min(duration,audio.currentTime||0)),playbackRate:audio.playbackRate||1});else mediaSession.setPositionState()}catch{}}
+let artworkJobKey='', artworkJob=null, artworkReady=null;
+function prepareSystemArtwork(url,key,track){
+ if(artworkJobKey===key)return;
+ artworkJob?.abort(); artworkJobKey=key; artworkReady=null;
+ const controller=new AbortController(); artworkJob=controller;
+ const timer=setTimeout(()=>controller.abort(),8000);
+ (async()=>{
+   try{
+     const response=await W.fetch(url,{signal:controller.signal,credentials:'omit',referrerPolicy:'no-referrer'});
+     if(!response.ok)throw Error('HTTP '+response.status);
+     const blob=await response.blob(); if(!blob.type.startsWith('image/')||blob.size>8*1024*1024)throw Error('图片格式或大小');
+     const bitmap=await W.createImageBitmap(blob);
+     let data;
+     try{const canvas=D.createElement('canvas');canvas.width=canvas.height=512;const ctx=canvas.getContext('2d');const side=Math.min(bitmap.width,bitmap.height);ctx.drawImage(bitmap,(bitmap.width-side)/2,(bitmap.height-side)/2,side,side,0,0,512,512);data=canvas.toDataURL('image/png');}finally{bitmap.close();}
+     if(disposed||controller.signal.aborted||playing!==track||mediaKey!==key)return;
+     artworkReady={key,src:data};
+     mediaSession.metadata=new mediaMetadataCtor({title:String(track.title||'声屿'),artist:String(track.artist||''),album:'声屿 · Sound Isle',artwork:[{src:data,sizes:'512x512',type:'image/png'},{src:url}]});
+     mediaDiagnostic='真实封面已转换并提交';
+   }catch(e){if(!disposed&&playing===track&&mediaKey===key)mediaDiagnostic='远程封面已提交；转换失败：'+e.name;}
+   finally{clearTimeout(timer);}
+ })();
+}
 function updateMedia(){
  if(!mediaSession)return;
  if(!playing){
@@ -168,13 +190,14 @@ function updateMedia(){
  if(key!==mediaKey&&mediaMetadataCtor){
    try{
      // A built-in image is available even for songs without online cover art.
-     const artwork=cover?[{src:cover},{src:fallbackArtwork,sizes:'512x512',type:'image/png'}]
+     const artwork=cover?(artworkReady?.key===key?[{src:artworkReady.src,sizes:'512x512',type:'image/png'},{src:cover}]:[{src:cover}])
        :[{src:fallbackArtwork,sizes:'512x512',type:'image/png'}];
      mediaSession.metadata=new mediaMetadataCtor({
        title:String(playing.title||'声屿'),artist:String(playing.artist||'未知歌手'),
        album:'声屿 · Sound Isle',artwork
      });
-     mediaKey=key;mediaDiagnostic='元数据已提交';
+     mediaKey=key;mediaDiagnostic=cover?'真实封面已提交':'默认封面已提交';
+     if(cover) prepareSystemArtwork(cover,key,playing);
    }catch(error){
      // Bad remote artwork and older WebViews must not abort media updates.
      try{
@@ -390,7 +413,7 @@ async function playQueued(index,resumeAt=0,preferOnline=false){
  async function loadCover(id){
    if(validUrl(t.coverUrl)){coverState='已有地址';return;}
    try {
-     const metadata=await shared.online.get('/music/detail?id='+encodeURIComponent(id),10000,signal);
+     const metadata=await shared.online.get('/music/detail?id='+encodeURIComponent(id)+'&q='+encodeURIComponent([t.title,t.artist].filter(Boolean).join(' ')),10000,signal);
      if(!alive()||t.neteaseId!==id||validUrl(t.coverUrl))return;
      const cover=validUrl(metadata.cover);
      if(!cover){coverState='详情未返回封面';return;}
@@ -1404,6 +1427,7 @@ W[INSTANCE]={
     if(disposed)return;
     storePlayback();
     disposed=true;
+    artworkJob?.abort();
     releasePlaybackSession();
     stopPlaybackWork();
     storyTasks.cancel();

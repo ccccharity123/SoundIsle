@@ -279,8 +279,9 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
     try { W.localStorage.setItem('capricorn_player_size', size); } catch (_) {}
     animateFrom(before, art);
   }
-  let closingAnim = null;
+  let closingAnim = null, closeEpoch = 0;
   function cancelCloseAnim() {
+    ++closeEpoch;
     if (closingAnim) {
       try { closingAnim.cancel(); } catch (_) {}
       closingAnim = null;
@@ -291,7 +292,9 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
     closeMenus();
     if (panel.hidden) return;
     if (closingAnim) return;
+    const epoch = ++closeEpoch;
     const finish = () => {
+      if (epoch !== closeEpoch) return;
       closingAnim = null;
       panel.classList.remove('is-closing');
       panel.hidden = true;
@@ -311,7 +314,7 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
       { transform: 'translateY(18px) scale(0.965)', opacity: 0 }
     ], { duration: 185, easing: 'cubic-bezier(0.32, 0.72, 0, 1)', fill: 'forwards' });
     closingAnim.onfinish = finish;
-    closingAnim.oncancel = () => { closingAnim = null; panel.classList.remove('is-closing'); };
+    closingAnim.oncancel = () => { if(epoch !== closeEpoch) return; closingAnim = null; panel.classList.remove('is-closing'); };
   }
   function openAux(name) {
     closePanel(true);
@@ -943,7 +946,8 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
   return {
     open() {
       cancelCloseAnim();
-      if (!panel.hidden) return;
+      if (!panel.isConnected) D.body.append(panel);
+      if (!panel.hidden) { D.body.dataset.capPlayerOpen='true'; return; }
       const island = D.querySelector('#capricorn-hub .cap-island');
       openedAt=Date.now();
       panel.hidden = false;

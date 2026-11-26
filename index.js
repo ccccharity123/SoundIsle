@@ -205,12 +205,18 @@ shared.onAccountChange=()=>{
 function tick(){
   if(destroyed||!music)return;
   try{
+    repairUI();
     scheduler.setContext(scope());
     scheduler.enqueue('声屿',task=>music.tick(task),maintenancePriority.audio,
       {lane:'audio',scoped:true,duringForeground:true});
   }catch(error){console.warn('[声屿] 后台任务',error);}
 }
-function resume(){if(!D.hidden){scheduler.resume();tick();}}
+function repairUI(){
+  if(destroyed || W.__soundIsleStandalone?.destroy!==destroy || !D.body)return;
+  if(!root.isConnected)D.body.append(root);
+  if(!music?.isPlayerOpen())D.body.removeAttribute('data-cap-player-open');
+}
+function resume(){if(!D.hidden){repairUI();scheduler.resume();tick();}}
 D.addEventListener('visibilitychange',resume);
 function destroy(){
   if(destroyed)return;
