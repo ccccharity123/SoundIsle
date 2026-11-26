@@ -10,6 +10,7 @@ import {
 import { refreshSelect } from './ui-select.js';
 import { uiConfirm, uiToast } from './ui-dialog.js';
 import { compileThemeCss, NOTE_SCOPE, PLAYER_SCOPE, readThemeCss } from './theme-css.js';
+import { mountThemeLibrary, normalizeSnapshot, PLAYER_CSS_KEYS } from './theme-library.js';
 
 export function mountAppearance(settings, root, themeSelect, memoryRoot) {
   const D = root.ownerDocument, W = D.defaultView, key = 'capricorn_appearance_v1';
@@ -40,6 +41,7 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
   let installedFonts = [];
   let bgImageUrl = '';
   let disposed = false;
+  let themeLibrary;
   let fontRevision = 0;
 
   const NOTE_PRESETS = {
@@ -637,6 +639,7 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
         persist(key, draft);
         p = draft;
         sync();
+        themeLibrary?.syncCurrent();
         status('已保存');
         uiToast('自定义样式已保存', { doc: D, kind: 'success' });
       } catch (error) {
@@ -729,6 +732,7 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
       renderLocalTheme(next);
       persist(themeKey, next);
       localTheme = next;
+      themeLibrary?.syncCurrent();
     } catch (error) {
       restoreLocalTheme();
       themeStatus.textContent = error.message;
@@ -748,7 +752,49 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
   fontBox.querySelector('[data-theme-export]').onclick = () => { const url = W.URL.createObjectURL(new W.Blob([localTheme.css ?? bundledCss], {type:'text/css'})); const a = D.createElement('a'); a.href=url; a.download='custom-theme.css'; a.click(); W.setTimeout(()=>W.URL.revokeObjectURL(url),1000); };
   fontBox.querySelector('[data-theme-toggle]').onclick = () => commitTheme({...localTheme,enabled:!localTheme.enabled});
   fontBox.querySelector('[data-theme-reset]').onclick = () => commitTheme({enabled:false,css:null});
+  const playerCssInputs = PLAYER_CSS_KEYS.map(k => cssEditor.querySelector(`[data-pcss="${k}"]`));
+  function currentCssSnapshot() {
+    return normalizeSnapshot({ ...p, local: localTheme });
+  }
+  function applyCssSnapshot(snapshot) {
+    const clean = normalizeSnapshot(snapshot);
+    const previous = p, previousLocal = localTheme;
+    const draft = { ...p, ...Object.fromEntries(PLAYER_CSS_KEYS.map(k => [k, clean[k]])), playerThemeUrl: '' };
+    const nextLocal = clean.local;
+    // Validate all fields, including a disabled local theme, before changing storage or UI.
+    for (const field of PLAYER_CSS_KEYS) compile(field, draft[field]);
+    if (nextLocal.css !== null) compile('local', nextLocal.css);
+    const oldPrefsRaw = W.localStorage.getItem(key), oldThemeRaw = W.localStorage.getItem(themeKey);
+    let prefsWritten = false, themeWritten = false;
+    try {
+      apply(draft, PLAYER_CSS_KEYS);
+      renderLocalTheme(nextLocal);
+      persist(key, draft); prefsWritten = true;
+      persist(themeKey, nextLocal); themeWritten = true;
+    } catch (error) {
+      try {
+        if (prefsWritten) oldPrefsRaw === null ? W.localStorage.removeItem(key) : W.localStorage.setItem(key, oldPrefsRaw);
+        if (themeWritten) oldThemeRaw === null ? W.localStorage.removeItem(themeKey) : W.localStorage.setItem(themeKey, oldThemeRaw);
+      } catch {
+        apply(previous); restoreLocalTheme();
+        throw Error('主题切换失败，且旧配置写回失败；请检查浏览器存储空间。');
+      }
+      apply(previous); restoreLocalTheme();
+      throw error;
+    }
+    p = draft; localTheme = nextLocal;
+    playerCssInputs.forEach((field, i) => { field.value = p[PLAYER_CSS_KEYS[i]]; });
+    urlField.value = '';
+    playerStatus.textContent = '已切换主题';
+  }
   restoreLocalTheme();
+  themeLibrary = mountThemeLibrary({
+    D, W, host: cssEditor, namespace: 'sound_isle', current: currentCssSnapshot,
+    hasDraft: () => playerCssInputs.some((field, i) => field.value !== (p[PLAYER_CSS_KEYS[i]] || '')),
+    applySnapshot: applyCssSnapshot,
+    confirm: message => uiConfirm(message, { doc: D, title: 'CSS 主题库' }),
+    isDisposed: () => disposed
+  });
   fetch(new URL('./custom-theme.css', import.meta.url), { cache: 'no-cache' })
     .then(response => {
       if (!response.ok) throw Error('默认主题文件加载失败');
@@ -775,6 +821,7 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
     toggleInlineDrawer(){if(inlineDrawer) inlineDrawer.hidden=!inlineDrawer.hidden;},
     destroy() {
       disposed = true;
+      themeLibrary?.destroy();
       for (const { image } of imageChecks.values()) image.onload = image.onerror = null;
       imageChecks.clear();
       activeSheets.clear();
