@@ -32,6 +32,7 @@ const sizeLabels = { compact: '悬浮卡片', half: '半屏', large: '大半屏'
 export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play, move, remove, volume, mode, quality }) {
   const panel = D.createElement('section');
   panel.className = 'cap-full-player cap-player-layout';
+  panel.dataset.soundIslePlayer = "";
   const android = /Android/i.test(W.navigator.userAgent);
   const media = W.matchMedia ? W.matchMedia.bind(W) : () => null;
   const coarse = media('(pointer: coarse)');

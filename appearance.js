@@ -9,6 +9,7 @@ import {
 } from './fonts.js';
 import { refreshSelect } from './ui-select.js';
 import { uiConfirm, uiToast } from './ui-dialog.js';
+import { compileThemeCss, NOTE_SCOPE, PLAYER_SCOPE, readThemeCss } from './theme-css.js';
 
 export function mountAppearance(settings, root, themeSelect, memoryRoot) {
   const D = root.ownerDocument, W = D.defaultView, key = 'capricorn_appearance_v1';
@@ -296,49 +297,94 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
   sheet.id = 'capricorn-custom-note-css';
   D.head.append(sheet);
 
-  // Theme resources are opt-in HTTPS URLs; never allow CSS escapes or nested imports.
-  function validateCssResources(s) {
-    const clean = s.replace(/\/\*[\s\S]*?\*\//g, '');
-    if (/[<>\\]/.test(clean) || /@import\b|@charset\b|(?:image-set|image|src|expression)\s*\(|javascript:/i.test(clean)) {
-      throw Error('CSS 不支持 @import、CSS 转义或不安全资源语法');
-    }
-    const rest = clean.replace(/\burl\s*\(\s*(?:"([^"]*)"|'([^']*)'|([^"'()\s]+))\s*\)/gi, (_, a, b, c) => {
-      const raw = a ?? b ?? c;
-      let u;
-      try { u = new URL(raw); } catch { throw Error('资源必须使用完整 HTTPS 地址'); }
-      if (!/^https:\/\//i.test(raw) || u.protocol !== 'https:' || u.username || u.password || /[\u0000-\u0020\u007f]/.test(raw)) {
-        throw Error('资源仅允许无凭据的 HTTPS 地址');
+  const cssFields = {
+    playerIslandCss: [PLAYER_SCOPE, '#capricorn-hub .cap-island'],
+    playerThemeCss: [PLAYER_SCOPE, '#capricorn-hub nav, [data-sound-isle-player]'],
+    playerCustomCss: [PLAYER_SCOPE],
+    side: [NOTE_SCOPE, NOTE_SCOPE],
+    note: [NOTE_SCOPE, `${NOTE_SCOPE} .cap-story`],
+    custom: [NOTE_SCOPE],
+    local: [PLAYER_SCOPE]
+  };
+  const compiledFields = new Map();
+  const cssNamespace = W.crypto.getRandomValues(new Uint32Array(2)).join('-');
+  const imageChecks = new Map();
+  const activeSheets = new Map();
+  const playerStatus = playerBox.querySelector('[data-pstatus]');
+  const noteStatus = noteBox?.querySelector('[data-status]');
+  function createImageStatus(after) {
+    const status = D.createElement('p');
+    status.className = 'cap-css-status';
+    status.setAttribute('role', 'status');
+    after.after(status);
+    return status;
+  }
+  const imageStatus = createImageStatus(playerStatus);
+
+  function compile(field, source) {
+    const cached = compiledFields.get(field);
+    if (cached?.source === source) return cached.result;
+    const [scope, declarationsFor] = cssFields[field];
+    const result = compileThemeCss(source, { W, scope, declarationsFor, namespace: `${cssNamespace}-${field}` });
+    compiledFields.set(field, { source, result });
+    return result;
+  }
+
+  function inject(target, css) {
+    if (target.textContent !== css) target.textContent = css;
+    if (css && !target.sheet) throw Error('CSS 注入失败：浏览器未启用自定义样式表。请检查页面的内容安全策略。');
+  }
+
+  function renderImages(target, { parts, prefix, imageMessage }) {
+    const failed = new Set();
+    const failures = [];
+    for (const part of parts) {
+      for (const [url, info] of part.images) {
+        if (imageChecks.get(url)?.state !== 'failed' || failed.has(url)) continue;
+        failed.add(url);
+        if (failures.length < 3) failures.push(`第 ${info.line} 行 ${info.property}（${url.slice(0, 90)}）`);
       }
-      return '';
-    });
-    if (/\burl\s*\(/i.test(rest)) throw Error('无效的 CSS url()');
-    return s;
-  }
-
-  function declarations(s) {
-    if (typeof s !== 'string' || s.length > 1000000 || /[{}@]/.test(s)) {
-      throw Error('声明仅支持 CSS 属性，不支持大括号或 @ 规则');
     }
-    return validateCssResources(s);
+    const css = prefix + parts.map(part => part.render(failed)).join('\n');
+    inject(target, css.trim() ? css : '');
+    imageMessage.textContent = failed.size
+      ? `图片加载失败 · ${failures.join('、')}。已回退到其余样式，请检查图片地址、混合内容或页面权限。`
+      : '';
   }
 
-  function scopedCss(s, scopePrefix, keepPrefix) {
-    if (typeof s !== 'string' || s.length > 1000000) throw Error('高级 CSS 长度超出限制');
-    validateCssResources(s);
-    const cleaned = s.replace(/\/\*[\s\S]*?\*\//g, '').trim();
-    if (!cleaned) return '';
-    return cleaned.replace(/([^{}]+)\{([^{}]*)\}/g, (_, sel, body) => {
-      const trimmed = sel.trim();
-      if (/^@font-face$/i.test(trimmed)) return `${trimmed} { ${body} }\n`;
-      if (/^@keyframes\b/i.test(trimmed)) return `${trimmed} { ${body} }\n`;
-      const scoped = trimmed.split(',').map(part => {
-        const t = part.trim();
-        if (!t) return '';
-        if (keepPrefix.some(k => t.startsWith(k))) return t;
-        return `${scopePrefix} ${t}`;
-      }).filter(Boolean).join(', ');
-      return scoped ? `${scoped} { ${body} }\n` : '';
-    });
+  function refreshImages() {
+    if (disposed) return;
+    for (const [target, entry] of activeSheets) {
+      try {
+        renderImages(target, entry);
+      } catch (error) {
+        entry.status.textContent = error.message;
+      }
+    }
+  }
+
+  function applySheet(target, parts, status, imageMessage, prefix = '') {
+    const entry = { parts, prefix, status, imageMessage };
+    renderImages(target, entry);
+    activeSheets.set(target, entry);
+
+    const activeUrls = new Set([...activeSheets.values()].flatMap(entry =>
+      entry.parts.flatMap(part => [...part.images.keys()])
+    ));
+    for (const [url, check] of imageChecks) {
+      if (activeUrls.has(url)) continue;
+      check.image.onload = check.image.onerror = null;
+      imageChecks.delete(url);
+    }
+    for (const url of new Set(parts.flatMap(part => [...part.images.keys()]))) {
+      if (imageChecks.has(url) || imageChecks.size >= 32) continue;
+      const image = new W.Image();
+      const check = { image, state: 'pending' };
+      imageChecks.set(url, check);
+      image.onload = () => { check.state = 'loaded'; };
+      image.onerror = () => { check.state = 'failed'; refreshImages(); };
+      image.src = url;
+    }
   }
 
   function safeBgColor(val) {
@@ -412,8 +458,33 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
     }
   }
 
-  function apply(draft = p) {
+  function apply(draft = p, strictFields = []) {
     if (disposed) return;
+    const parts = [];
+    const failedGroups = new Set();
+    for (const field of Object.keys(cssFields)) {
+      if (field === 'local') continue;
+      try {
+        parts.push(compile(field, draft[field] ?? ''));
+      } catch (error) {
+        if (strictFields.includes(field)) throw error;
+        const status = field.startsWith('player') ? playerStatus : noteStatus;
+        if (status && !failedGroups.has(status)) {
+          status.textContent = `已保存的 CSS 未应用 · ${field} · ${error.message}`;
+          failedGroups.add(status);
+        }
+      }
+    }
+    const bgColor = safeBgColor(draft.playerBgColor);
+    const bgOverrideRule = bgColor
+      ? `#capricorn-hub nav, [data-sound-isle-player] { background: ${bgColor} !important; }\n`
+      : '';
+    try {
+      applySheet(sheet, parts, playerStatus, imageStatus, bgOverrideRule);
+    } catch (error) {
+      if (strictFields.length) throw error;
+      playerStatus.textContent = error.message;
+    }
     const b = D.body;
     b.dataset.capMaterial = draft.material;
     b.dataset.capPlayerTheme = 'default';
@@ -433,7 +504,6 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
     b.dataset.capCoverPlate=draft.coverPlate; const vars = {'cover-size':Number(draft.coverSize)+'px','cover-padding':Number(draft.coverPadding)+'px','cover-opacity':Number(draft.coverOpacity)/100,'cover-fit':draft.coverFit==='contain'?'contain':'cover','cover-radius':Number(draft.coverRadius)+'px','cover-border':Number(draft.coverBorder)+'px','cover-color':/^#[0-9a-f]{6}$/i.test(draft.coverBorderColor)?draft.coverBorderColor:'#ffffff','cover-style':['solid','dashed','double'].includes(draft.coverBorderStyle)?draft.coverBorderStyle:'solid','cover-shadow':Number(draft.coverShadow)+'px','bg-saturation':Number(draft.bgSaturation)+'%','bg-shade':Number(draft.bgShade)/100};
     for(const [k,v] of Object.entries(vars)) D.documentElement.style.setProperty('--cap-'+k,v);
 
-    const bgColor = safeBgColor(draft.playerBgColor);
     const opacity = Math.min(1, Math.max(0, Number(draft.playerBgOpacity ?? 82) / 100));
     const blur = Math.min(60, Math.max(0, Number(draft.playerBgBlur ?? 24)));
 
@@ -441,29 +511,18 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
     D.documentElement.style.setProperty('--cap-player-bg-opacity', String(opacity));
     D.documentElement.style.setProperty('--cap-player-bg-blur', `${blur}px`);
 
-    const sideCss = declarations(draft.side || '');
-    const noteCss = declarations(draft.note || '');
-    const extraNoteCss = scopedCss(draft.custom || '', '#shiyi-dock.cap-memory-side', ['#shiyi-dock']);
-    const islandCss = declarations(draft.playerIslandCss || '');
-    const pThemeCss = declarations(draft.playerThemeCss || '');
-    const extraPlayerCss = scopedCss(draft.playerCustomCss || '', '#capricorn-hub', ['#capricorn-hub', '.cap-full-player']);
+  }
 
-    const bgOverrideRule = bgColor
-      ? `#capricorn-hub nav, .cap-full-player { background: ${bgColor} !important; }\n`
-      : '';
-
-    sheet.textContent =
-      bgOverrideRule +
-      `#capricorn-hub .cap-island { ${islandCss} }\n` +
-      `#capricorn-hub nav, .cap-full-player { ${pThemeCss} }\n` +
-      extraPlayerCss +
-      `body[data-cap-paper] #shiyi-dock.cap-memory-side { ${sideCss} }\n` +
-      `body[data-cap-paper] #shiyi-dock.cap-memory-side .cap-story { ${noteCss} }\n` +
-      extraNoteCss;
+  function persist(storageKey, value) {
+    try {
+      W.localStorage.setItem(storageKey, JSON.stringify(value));
+    } catch {
+      throw Error('CSS 保存失败：浏览器存储空间不足或不可用。请释放空间后重试。');
+    }
   }
 
   function save() {
-    W.localStorage.setItem(key, JSON.stringify(p));
+    persist(key, p);
     apply(p);
     void applyFonts(p);
   }
@@ -572,11 +631,30 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
     const sync = () => fields.forEach((el,i) => { el.value = p[keys[i]] || ''; });
     const status = msg => { statusNode.textContent = msg; };
     function commit(values) {
-      const old = p; p = {...p, ...values};
-      try { apply(p); save(); sync(); status('已保存'); uiToast('自定义样式已保存', { doc: D, kind: 'success' }); } catch(e) { p = old; apply(p); status(e.message); }
+      const draft = { ...p, ...values };
+      try {
+        apply(draft, keys);
+        persist(key, draft);
+        p = draft;
+        sync();
+        status('已保存');
+        uiToast('自定义样式已保存', { doc: D, kind: 'success' });
+      } catch (error) {
+        apply(p);
+        status(error.message);
+      }
     }
     sync();
-    fields.forEach((el,i) => { el.oninput = () => { try { apply({...p,...Object.fromEntries(fields.map((f,j)=>[keys[j],f.value]))}); status('预览中'); } catch(e) { status(e.message); } }; });
+    fields.forEach(el => {
+      el.oninput = () => {
+        try {
+          apply({ ...p, ...Object.fromEntries(fields.map((field, i) => [keys[i], field.value])) }, keys);
+          status('预览中');
+        } catch (error) {
+          status(error.message);
+        }
+      };
+    });
     box.querySelector(`[${saveAttr}]`).onclick = () => commit(Object.fromEntries(fields.map((f,i)=>[keys[i],f.value])));
     box.querySelector(`[${resetAttr}]`).onclick = () => commit(Object.fromEntries(keys.map(k=>[k,''])));
     for (const btn of box.querySelectorAll(`[${presetAttr}]`)) btn.onclick = () => commit(presets[btn.getAttribute(presetAttr)]);
@@ -590,11 +668,15 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
   const file=D.createElement('input');file.type='file';file.accept='.css,text/css';file.hidden=true;
   const msg=cssEditor.querySelector('[data-pstatus]');
   const button=(name,fn)=>{const b=D.createElement('button');b.type='button';b.textContent=name;b.onclick=fn;toolsRow.append(b);return b;};
-  const preview=text=>{scopedCss(text,'#capricorn-hub',['#capricorn-hub','.cap-full-player']);cssField.value=text;msg.textContent='已载入，请点击保存并应用';};
+  const preview = text => {
+    cssField.value = text;
+    compile('playerCustomCss', text);
+    msg.textContent = '已载入，请点击保存并应用';
+  };
   button('导入 CSS',()=>file.click());
-  file.onchange=async()=>{try{const f=file.files?.[0];if(!f)return;if(f.size>4000000)throw Error('CSS 文件过大');preview(await f.text());}catch(e){msg.textContent=e.message;}finally{file.value='';}};
+  file.onchange=async()=>{try{const f=file.files?.[0];if(!f)return;preview(await readThemeCss(f));}catch(e){msg.textContent=e.message;}finally{file.value='';}};
   button('导出 CSS',()=>{const u=URL.createObjectURL(new Blob([cssField.value],{type:'text/css'}));const a=D.createElement('a');a.href=u;a.download='sound-isle-theme.css';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);});
-  const remote=button('加载 URL 主题',async()=>{remote.disabled=true;try{const u=new URL(urlField.value);if(u.protocol!=='https:'||u.username||u.password)throw Error('仅支持 HTTPS 主题地址');const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),15000);try{const r=await fetch(u.href,{credentials:'omit',redirect:'error',signal:controller.signal});if(!r.ok)throw Error('主题请求失败 '+r.status);const text=await r.text();preview(text);p.playerThemeUrl=u.href;}finally{clearTimeout(timer);}}catch(e){msg.textContent=e.message;}finally{remote.disabled=false;}});
+  const remote=button('加载 URL 主题',async()=>{remote.disabled=true;try{const u=new URL(urlField.value);if(u.protocol!=='https:'||u.username||u.password)throw Error('仅支持 HTTPS 主题地址');const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),15000);try{const r=await fetch(u.href,{credentials:'omit',redirect:'error',signal:controller.signal});if(!r.ok)throw Error('主题请求失败 '+r.status);const text=await readThemeCss(r);preview(text);p.playerThemeUrl=u.href;}finally{clearTimeout(timer);}}catch(e){msg.textContent=e.message;}finally{remote.disabled=false;}});
   cssEditor.append(urlField,toolsRow,file);
   bindCss(noteBox,'data-css',['side','note','custom'],NOTE_PRESETS,'data-preset','data-save','data-reset','data-status');
   const backgroundBox = D.createElement('section');
@@ -623,34 +705,68 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
   try { localTheme = {...localTheme, ...JSON.parse(W.localStorage.getItem(themeKey) || '{}')}; } catch {}
   let bundledCss = '';
   const themeStatus = fontBox.querySelector('[data-theme-status]');
+  const localImageStatus = createImageStatus(themeStatus);
   const themeFile = fontBox.querySelector('[data-theme-file]');
-  function validateTheme(css) {
-    if (typeof css !== 'string' || css.length > 1000000) throw Error('主题不能超过100万字符');
-    validateCssResources(css);
-    return css;
-  }
-  function renderLocalTheme() {
+  function renderLocalTheme(theme = localTheme) {
     if (disposed) return;
-    try { localSheet.textContent = localTheme.enabled ? validateTheme(localTheme.css ?? bundledCss) : ''; themeStatus.textContent = localTheme.enabled ? '主题已启用' : '主题已停用'; }
-    catch(e) { localSheet.textContent = ''; themeStatus.textContent = e.message; }
+    const parts = theme.enabled ? [compile('local', theme.css ?? bundledCss)] : [];
+    applySheet(localSheet, parts, themeStatus, localImageStatus);
+    themeStatus.textContent = theme.enabled ? '主题已启用' : '主题已停用';
+  }
+  function restoreLocalTheme() {
+    try {
+      renderLocalTheme();
+    } catch (error) {
+      localSheet.textContent = '';
+      activeSheets.delete(localSheet);
+      localImageStatus.textContent = '';
+      themeStatus.textContent = error.message;
+    }
   }
   function commitTheme(next) {
-    try { if (next.css !== null) validateTheme(next.css); W.localStorage.setItem(themeKey, JSON.stringify(next)); localTheme = next; renderLocalTheme(); }
-    catch(e) { themeStatus.textContent = e.message; }
+    if (disposed) return;
+    try {
+      renderLocalTheme(next);
+      persist(themeKey, next);
+      localTheme = next;
+    } catch (error) {
+      restoreLocalTheme();
+      themeStatus.textContent = error.message;
+    }
   }
   fontBox.querySelector('[data-theme-import]').onclick = () => themeFile.click();
-  themeFile.onchange = async () => { try { const f = themeFile.files?.[0]; if (!f) return; if (f.size > 4000000) throw Error('文件不能超过4MB'); const css = validateTheme(await f.text()); if (!disposed) commitTheme({enabled:true,css}); } catch(e) { themeStatus.textContent = e.message; } finally { themeFile.value = ''; } };
+  themeFile.onchange = async () => {
+    try {
+      const file = themeFile.files?.[0];
+      if (file) commitTheme({ enabled: true, css: await readThemeCss(file) });
+    } catch (error) {
+      themeStatus.textContent = error.message;
+    } finally {
+      themeFile.value = '';
+    }
+  };
   fontBox.querySelector('[data-theme-export]').onclick = () => { const url = W.URL.createObjectURL(new W.Blob([localTheme.css ?? bundledCss], {type:'text/css'})); const a = D.createElement('a'); a.href=url; a.download='custom-theme.css'; a.click(); W.setTimeout(()=>W.URL.revokeObjectURL(url),1000); };
   fontBox.querySelector('[data-theme-toggle]').onclick = () => commitTheme({...localTheme,enabled:!localTheme.enabled});
   fontBox.querySelector('[data-theme-reset]').onclick = () => commitTheme({enabled:false,css:null});
-  renderLocalTheme();
-  fetch(new URL('./custom-theme.css', import.meta.url), {cache:'no-cache'}).then(r=>{if(!r.ok) throw Error('主题文件不可用'); return r.text();}).then(css=>{bundledCss=validateTheme(css); renderLocalTheme();}).catch(()=>{});
+  restoreLocalTheme();
+  fetch(new URL('./custom-theme.css', import.meta.url), { cache: 'no-cache' })
+    .then(response => {
+      if (!response.ok) throw Error('默认主题文件加载失败');
+      return readThemeCss(response);
+    })
+    .then(css => {
+      bundledCss = css;
+      if (localTheme.css === null && localTheme.enabled) restoreLocalTheme();
+    })
+    .catch(error => {
+      if (!disposed && localTheme.css === null && localTheme.enabled) themeStatus.textContent = error.message;
+    });
 
   const onTheme = () => apply(p);
   themeSelect.addEventListener('change', onTheme);
   if (media.addEventListener) media.addEventListener('change', onTheme);
   else if (media.addListener) media.addListener(onTheme);
-  try { apply(p); } catch(e) { console.warn('[Capricorn] invalid saved CSS',e); apply({...p,side:'',note:'',custom:'',playerIslandCss:'',playerThemeCss:'',playerCustomCss:''}); }
+  apply(p);
   void refreshFonts().then(()=>applyFonts(p)).catch(e=>setFontStatus(e.message));
   void loadBgImageUrl().then(url=>{bgImageUrl=url; if(bgTip && url) bgTip.textContent='已应用背景图'; apply(p);}).catch(e=>console.warn(e));
   return {
@@ -659,6 +775,9 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
     toggleInlineDrawer(){if(inlineDrawer) inlineDrawer.hidden=!inlineDrawer.hidden;},
     destroy() {
       disposed = true;
+      for (const { image } of imageChecks.values()) image.onload = image.onerror = null;
+      imageChecks.clear();
+      activeSheets.clear();
       themeSelect.removeEventListener('change', onTheme);
       if (media.removeEventListener) media.removeEventListener('change', onTheme);
       else if (media.removeListener) media.removeListener(onTheme);
