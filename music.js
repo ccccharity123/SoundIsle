@@ -346,7 +346,7 @@ async function autoMatch() {
     }
     status('已匹配网易云：'+track.title,false);
     if (playing === track && !resolving && !audio.getAttribute('src') && shouldFollowStory()) {
-      void playQueued(queueIndex);
+      void storyPlay(queueIndex);
     }
   } catch (error) {
     if (task.active()) status('在线匹配暂不可用：'+error.message,false);
@@ -366,6 +366,13 @@ function storePlayback(){
   save();
 }
 let resumePosition=0;
+let manualPause=false;
+const autoPref=k=>W.localStorage.getItem("capricorn_auto_"+k)==="on";
+function storyPlay(index){
+ if(!manualPause && ((!audio.paused && started)||autoPref("story"))) return playQueued(index);
+ if(!audio.paused||resolving)return;
+ stopPlaybackWork();clearAudio();queueIndex=index;playing=queue[index];resumePosition=0;storePlayback();updateMedia();render();
+}
 let playbackLog=[], coverState='未检查', started=false;
 function trace(msg){playbackLog.push(String(msg));if(playbackLog.length>40)playbackLog.shift();status(msg,false);fullPlayer?.refresh()}
 let fadeGain=1;
@@ -398,6 +405,7 @@ async function attemptPlay(timeout=12000,signal){
 }
 const qualityOrder=['jymaster','sky','jyeffect','hires','lossless','exhigh','higher','standard'];
 async function playQueued(index,resumeAt=0,preferOnline=false){
+ manualPause=false;
  if(!queue.length||disposed)return;
  autoMatchTasks.cancel();
  const task=playbackTasks.start(),epoch=++playEpoch;
@@ -437,6 +445,7 @@ async function playQueued(index,resumeAt=0,preferOnline=false){
 function diagnostic(){return ['声屿 2.7.5','系统媒体会话：'+(mediaSession?'支持':'不支持'),'系统音频会话：'+(systemAudioSession?.type||'不支持'),'系统音频状态：'+(systemAudioSession?.state||'未知'),'页面状态：'+D.visibilityState,'聊天：'+chatId(),'跟随状态：'+String(observedStory)+' / '+String(pendingScope),'后台播放优先：'+String(isAppleMobile&&backgroundPriority()),'音频通道：'+(activeAudio===nativeAudio?'HTMLAudioElement':'Web Audio'),'媒体元数据：'+mediaDiagnostic,'系统媒体构造器：'+(mediaMetadataCtor?'支持':'不支持'),'音量引擎：'+volumeBackend(),'音频上下文：'+(audioContext?.state||'未创建'),'歌曲：'+(playing?.title||'无'),'网易云ID：'+(playing?.neteaseId||'无'),'封面：'+coverState,'音质：'+actualQuality,'readyState：'+audio.readyState,'networkState：'+audio.networkState,'媒体错误：'+(audio.error?.code||0),'状态：'+audioError,...playbackLog].join('\n')}
 function nextTrack(direction=1){if(!queue.length){let tracks=audioTracks();if(!tracks.length)return;queue=tracks.slice();queueRevision++;queueIndex=0;queuePlaylistName=db.playlists[selected]?.name||'声屿';return playQueued(0)}let i=queueIndex;if(playMode==='shuffle'&&queue.length>1){let n=Math.floor(Math.random()*(queue.length-1));i=n>=i?n+1:n}else i=(i+direction+queue.length)%queue.length;playQueued(i)}
 async function toggleAudio(){
+  manualPause=resolving||!audio.paused;
   if(resolving){stopPlaybackWork();clearAudio();trace('已取消加载，再点播放重试');render();return;}
   if(!playing)return playIndex(0);
   if(!audio.paused){
@@ -499,6 +508,7 @@ const mediaActions=['play','pause','previoustrack','nexttrack','seekto','seekbac
 function mediaSeek(value){if(Number.isFinite(value)&&Number.isFinite(audio.duration)){audio.currentTime=Math.max(0,Math.min(audio.duration,value));updatePosition()}}
 if(mediaSession){
   const pause=()=>{
+    manualPause=true;
     const loading=resolving;
     stopPlaybackWork();
     if(loading)clearAudio();
@@ -742,7 +752,7 @@ async function scan(force=false,task){
     queue=pl.songs.slice();
     queueRevision++;
     queuePlaylistName=pl.name;
-    void playQueued(queue.indexOf(track));
+    void storyPlay(queue.indexOf(track));
   }catch(error){
     if(error?.name!=='AbortError'){
       markFull();
@@ -832,6 +842,7 @@ async function followStory(){
   const revision=indexRevision;
   if(D.hidden||!await updateBgmIndex(scope)||disposed||storyKey()!==scope||pendingScope!==scope||revision!==indexRevision)return;
   pendingScope=null;
+  if(!pendingSwitch&&!autoPref("startup")){const row=bgmIndex.latest();if(row)scanFollowSignature=JSON.stringify([JSON.stringify([scope,row.id]),row.signature]);return;}
   if(skipSwitchMusic){const row=bgmIndex.latest();if(row)scanFollowSignature=JSON.stringify([JSON.stringify([scope,row.id]),row.signature]);return;}
   if(!shouldFollowStory())return;
   const pl=playlist(ch.id,ch.name+' · 故事原声');
@@ -845,7 +856,7 @@ async function followStory(){
     queueRevision++;
     queuePlaylistName=pl.name;
     if(playing?.id===track.id&&!audio.paused&&started){queueIndex=queue.indexOf(track);playing=track;applyGain(1);storePlayback();render();return;}
-    if(validUrl(track.audioUrl)||shared.online?.ready())return playQueued(queue.indexOf(track));
+    if(validUrl(track.audioUrl)||shared.online?.ready())return storyPlay(queue.indexOf(track));
     render();
     return;
   }
@@ -1349,7 +1360,7 @@ fullPlayer=mountNowPlaying({
     if(!qualityOrder.includes(level)||resolving||!playing?.neteaseId||(validUrl(playing.audioUrl)&&actualQuality==='手动音源')||!shared.online?.ready())return;
     db.settings.preferredQuality=level;
     save();
-    void playQueued(queueIndex,audio.currentTime||resumePosition||0,true);
+    if(!audio.paused)void playQueued(queueIndex,audio.currentTime||resumePosition||0,true);
   },
   volume(value){const requested=Math.max(0,Math.min(1,Number(value)||0));db.settings.volume=requested;applyGain(fadeGain);save()},
   mode(){playMode=playMode==='order'?'shuffle':playMode==='shuffle'?'one':'order';db.settings.playMode=playMode;syncNativeLoop();save()},
@@ -1371,10 +1382,11 @@ fullPlayer=mountNowPlaying({
     fullPlayer.refresh();
   },
 });
+if(autoPref("startup")&&playing&&!resolving)void toggleAudio();
 shared.onMusicConnectionChange=connectionChanged;
 W[INSTANCE]={
   root,
-  openPlayer(){fullPlayer.open()},
+  openPlayer(){fullPlayer.open();if(autoPref("open")&&!manualPause&&audio.paused&&!resolving)void toggleAudio()},
   closePlayer(){fullPlayer.close()},
   isPlayerOpen(){return fullPlayer.isOpen()},
   rolePlaylist(){

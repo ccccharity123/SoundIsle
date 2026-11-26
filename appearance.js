@@ -291,14 +291,14 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
   D.head.append(sheet);
 
   function declarations(s) {
-    if (typeof s !== 'string' || s.length > 8000 || /[{}@\\<>]/.test(s) || /url\s*\(|image-set\s*\(|expression\s*\(|javascript:/i.test(s)) {
+    if (typeof s !== 'string' || s.length > 50000 || /[{}@\\<>]/.test(s) || /url\s*\(|image-set\s*\(|expression\s*\(|javascript:/i.test(s)) {
       throw Error('声明仅支持本地 CSS 属性，不支持大括号、@ 规则或外部资源');
     }
     return s;
   }
 
   function scopedCss(s, scopePrefix, keepPrefix) {
-    if (typeof s !== 'string' || s.length > 16000) throw Error('高级 CSS 长度超出限制');
+    if (typeof s !== 'string' || s.length > 500000) throw Error('高级 CSS 长度超出限制');
     if (/[<>\\]|@import|@charset|@font-face|url\s*\(|image-set\s*\(|expression\s*\(|javascript:/i.test(s)) {
       throw Error('高级 CSS 不支持外部资源、@import 或不安全字符');
     }
@@ -558,6 +558,20 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
     for (const btn of box.querySelectorAll(`[${presetAttr}]`)) btn.onclick = () => commit(presets[btn.getAttribute(presetAttr)]);
   }
   bindCss(playerBox,'data-pcss',['playerIslandCss','playerThemeCss','playerCustomCss'],{},'data-player-preset','data-psave','data-preset-reset','data-pstatus');
+  // Import remote CSS as text, never as an executable or unrestricted stylesheet.
+  const cssEditor=playerBox.querySelector('.cap-css-editor');
+  const cssField=cssEditor.querySelector('[data-pcss="playerCustomCss"]');
+  const toolsRow=D.createElement('div');toolsRow.className='cap-css-actions';
+  const urlField=D.createElement('input');urlField.type='url';urlField.placeholder='HTTPS CSS 主题 URL';urlField.value=p.playerThemeUrl||'';
+  const file=D.createElement('input');file.type='file';file.accept='.css,text/css';file.hidden=true;
+  const msg=cssEditor.querySelector('[data-pstatus]');
+  const button=(name,fn)=>{const b=D.createElement('button');b.type='button';b.textContent=name;b.onclick=fn;toolsRow.append(b);return b;};
+  const preview=text=>{scopedCss(text,'#capricorn-hub',['#capricorn-hub','.cap-full-player']);cssField.value=text;msg.textContent='已载入，请点击保存并应用';};
+  button('导入 CSS',()=>file.click());
+  file.onchange=async()=>{try{const f=file.files?.[0];if(!f)return;if(f.size>2000000)throw Error('CSS 文件过大');preview(await f.text());}catch(e){msg.textContent=e.message;}finally{file.value='';}};
+  button('导出 CSS',()=>{const u=URL.createObjectURL(new Blob([cssField.value],{type:'text/css'}));const a=D.createElement('a');a.href=u;a.download='sound-isle-theme.css';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);});
+  const remote=button('加载 URL 主题',async()=>{remote.disabled=true;try{const u=new URL(urlField.value);if(u.protocol!=='https:'||u.username||u.password)throw Error('仅支持 HTTPS 主题地址');const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),15000);try{const r=await fetch(u.href,{credentials:'omit',redirect:'error',signal:controller.signal});if(!r.ok)throw Error('主题请求失败 '+r.status);const text=await r.text();preview(text);p.playerThemeUrl=u.href;}finally{clearTimeout(timer);}}catch(e){msg.textContent=e.message;}finally{remote.disabled=false;}});
+  cssEditor.append(urlField,toolsRow,file);
   bindCss(noteBox,'data-css',['side','note','custom'],NOTE_PRESETS,'data-preset','data-save','data-reset','data-status');
   const backgroundBox = D.createElement('section');
   backgroundBox.className = 'cap-appearance';
