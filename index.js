@@ -14,11 +14,12 @@ import { createScheduler, maintenancePriority } from './scheduler.js';
 
 const W = window, D = document;
 try { W.__soundIsleStandalone?.destroy?.(); } catch (error) { console.warn('[声屿] 上次实例清理失败', error); }
+if (W.__capricornExtension || D.getElementById('capricorn-hub')) throw new Error('声屿独立版与摩羯座完整版不能同时启用');
 const root = D.createElement('div');
 root.dataset.floatMode = readFloatSettings().mode;
 root.id = 'capricorn-hub';
 root.dataset.soundIsleStandalone = 'true';
-if (W.navigator.deviceMemory > 0 && W.navigator.deviceMemory <= 4) D.body.dataset.capVisualLite = '';
+
 root.innerHTML = `
   <button type="button" class="cap-island" aria-label="声屿音乐播放器" aria-expanded="false" data-playing="false" title="声屿">
     <span class="cap-island-colors" aria-hidden="true"></span>
@@ -192,6 +193,7 @@ nav.querySelector('[data-close]').onclick=close;
 nav.querySelectorAll('.cap-hub-primary [data-tab]').forEach(b=>b.onclick=()=>select(b.dataset.tab));
 nav.addEventListener('keydown',event=>{if(event.key==='Escape'&&!event.defaultPrevented)close();});
 shared.onAccountChange=()=>{
+  cloud?.invalidate();
   if(selectedTab==='cloud'&&!shared.accountReady?.())select('library');
   else libraryNav.hidden=!['library','cloud'].includes(selectedTab)||!shared.accountReady?.();
 };
@@ -296,6 +298,16 @@ async function boot(){
   services.innerHTML='<h4>服务与兼容性</h4><label><input type="checkbox" data-native-selects> 使用系统下拉菜单</label>';
   services.querySelector('[data-native-selects]').checked=nativeSelectsEnabled(D);
   services.querySelector('[data-native-selects]').onchange=event=>setNativeSelects(D,event.target.checked);
+  const bg = D.createElement('label');
+  bg.innerHTML='<input type="checkbox"> iOS 后台播放优先';
+  bg.firstElementChild.checked=music.backgroundPriority();
+  bg.firstElementChild.onchange=()=>music.setBackgroundPriority(bg.firstElementChild.checked);
+  services.append(bg);
+  const follow = D.createElement('label');
+  follow.innerHTML='<input type="checkbox"> 切换角色卡时自动切歌';
+  follow.firstElementChild.checked=W.localStorage.getItem('capricorn_follow_character')!=='off';
+  follow.firstElementChild.onchange=()=>W.localStorage.setItem('capricorn_follow_character',follow.firstElementChild.checked?'on':'off');
+  services.append(follow);
   settings.append(services);
   const controls=D.createElement('section');
   controls.dataset.capSettingsSection='backup';

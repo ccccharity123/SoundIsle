@@ -39,13 +39,13 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
   const motion = media('(prefers-reduced-motion: reduce)');
   const transparency = media('(prefers-reduced-transparency: reduce)');
   const reduce = () => Boolean((motion && motion.matches) || (transparency && transparency.matches) ||
-    (W.navigator.deviceMemory > 0 && W.navigator.deviceMemory <= 4));
+    false);
   let viewportFrame = 0;
   let observedComposer = null;
   const composerObserver = W.ResizeObserver ? new W.ResizeObserver(scheduleViewport) : null;
   function fitViewport() {
     if (panel.hidden) return;
-    panel.dataset.light = String(reduce());
+    panel.dataset.light = String(Boolean(transparency?.matches));
     const box = viewport(W);
     const computed = W.getComputedStyle(q('.cap-fp-safe'));
     const insets = {
@@ -102,15 +102,22 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
     '<div class="cap-fp-safe" aria-hidden="true"></div>' +
     '<div class="cap-ambient" aria-hidden="true"></div>' +
     '<div class="cap-fp-shell">' +
+      '<div class="cap-fp-grabber" data-close title="收起播放器" aria-hidden="true"></div>' +
       '<header class="cap-fp-header">' +
         '<span data-heading class="cap-fp-heading">声屿</span>' +
-        iconControl('data-close class="cap-fp-pill"', '收起播放器', icon('down', 20)) +
-        iconControl('data-size-switch', '选择播放器尺寸', icon('size', 20), 'aria-haspopup="menu" aria-expanded="false"') +
-        iconControl('data-settings', '设置', icon('settings', 20)) +
+        iconControl('data-close class="cap-fp-pill"', '收起播放器', icon('down', 19)) +
+        iconControl('data-size-switch', '选择播放器尺寸', icon('size', 19), 'aria-haspopup="menu" aria-expanded="false"') +
+        iconControl('data-settings', '设置', icon('settings', 19)) +
       '</header>' +
       '<div class="cap-fp-main">' +
-        '<div class="cap-art"><img alt="专辑封面" hidden><span>' + icon('music', 30) + '</span></div>' +
-        '<div class="cap-meta"><div class="cap-meta-text"><h2></h2><p data-artist></p></div></div>' +
+        '<div class="cap-art-wrap">' +
+          '<img class="cap-art-glow" alt="" aria-hidden="true" hidden>' +
+          '<div class="cap-art"><img alt="专辑封面" hidden><span>' + icon('music', 30) + '</span></div>' +
+        '</div>' +
+        '<div class="cap-meta">' +
+          '<div class="cap-meta-text"><h2></h2><p data-artist></p></div>' +
+          '<button type="button" class="cap-quality" data-quality aria-label="切换音质" title="切换音质" aria-haspopup="menu" aria-expanded="false"></button>' +
+        '</div>' +
         '<div class="cap-transport">' +
           iconControl('data-prev', '上一首', ICONS.prev) +
           iconControl('data-toggle class="cap-play-btn"', '播放', ICONS.play) +
@@ -126,7 +133,6 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
       '<div data-detail class="cap-fp-detail" hidden></div>' +
       '<small class="cap-color-note">封面跨域限制，已使用模糊封面代替取色</small>' +
       '<nav class="cap-fp-tabs" aria-label="播放工具">' +
-        '<button type="button" class="cap-quality" data-quality aria-label="切换音质" title="切换音质" aria-haspopup="menu" aria-expanded="false"></button>' +
         iconControl('data-mode', '播放模式', icon('repeat', 20)) +
         iconControl('data-lyrics', '歌词', ICONS.lyrics, 'aria-pressed="false"') +
         iconControl('data-queue', '播放队列', ICONS.queue, 'aria-pressed="false"') +
@@ -136,7 +142,7 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
       '</nav>' +
       '<div class="cap-volume-store" hidden>' +
         '<div class="cap-volume-content">' +
-          '<label class="cap-volume-label"><span>音量</span><output data-volume-value></output>' +
+          '<label class="cap-volume-label"><span class="cap-vol-title">' + icon('volumeHigh', 15) + '<span>音量</span></span><output data-volume-value></output>' +
             '<input data-volume type="range" min="0" max="1" step="0.01" aria-label="音量"></label>' +
           '<small data-volume-note class="cap-volume-note"></small>' +
         '</div>' +
@@ -239,15 +245,10 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
     });
   }
   function animateFrom(rect, target = panel) {
-    if (!rect || !rect.width || !rect.height || reduce() || !target.animate || mobile) return;
-    const bounds = target.getBoundingClientRect();
-    if (!bounds.width || !bounds.height) return;
-    target.animate([
-      { transformOrigin:'top left',
-        transform:'translate(' + (rect.left - bounds.left) + 'px,' + (rect.top - bounds.top) +
-          'px) scale(' + (rect.width / bounds.width) + ',' + (rect.height / bounds.height) + ')', opacity:.65 },
-      { transformOrigin:'top left', transform:'none', opacity:1 }
-    ], { duration:250, easing:'cubic-bezier(.22,1,.36,1)' });
+    if (reduce() || !target.animate) return;
+    // Never derive an opening transform from a hidden or moving island.
+    target.animate([{ opacity: .55 }, { opacity: 1 }],
+      { duration: 180, easing: 'ease-out' });
   }
   function setSize(value) {
     if (size === value) return;
@@ -263,16 +264,44 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
     try { W.localStorage.setItem('capricorn_player_size', size); } catch (_) {}
     animateFrom(before, art);
   }
-  function closePanel() {
+  let closingAnim = null;
+  function cancelCloseAnim() {
+    if (closingAnim) {
+      try { closingAnim.cancel(); } catch (_) {}
+      closingAnim = null;
+    }
+    panel.classList.remove('is-closing');
+  }
+  function closePanel(instant = false) {
     closeMenus();
     if (panel.hidden) return;
-    panel.hidden = true;
-    if (composerObserver) composerObserver.disconnect();
-    observedComposer = null;
-    if (shared.onPlayerClose) shared.onPlayerClose();
+    if (closingAnim) return;
+    const finish = () => {
+      closingAnim = null;
+      panel.classList.remove('is-closing');
+      panel.hidden = true;
+      panel.getAnimations?.().forEach(a => a.cancel());
+      sheetDrag = null;
+      panel.classList.remove('is-sheet-dragging');
+      panel.style.transform = '';
+      if (composerObserver) composerObserver.disconnect();
+      observedComposer = null;
+      if (shared.onPlayerClose) shared.onPlayerClose();
+    };
+    if (instant || reduce() || !panel.animate) {
+      finish();
+      return;
+    }
+    panel.classList.add('is-closing');
+    closingAnim = panel.animate([
+      { transform: panel.style.transform || 'none', opacity: 1 },
+      { transform: 'none', opacity: 0 }
+    ], { duration: 185, easing: 'cubic-bezier(0.32, 0.72, 0, 1)', fill: 'forwards' });
+    closingAnim.onfinish = finish;
+    closingAnim.oncancel = () => { closingAnim = null; panel.classList.remove('is-closing'); };
   }
   function openAux(name) {
-    closePanel();
+    closePanel(true);
     if (shared.openPlayerAux) shared.openPlayerAux(name);
   }
   function showTab(name) {
@@ -316,6 +345,7 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
   moreButton.onclick = () => openChoices(moreButton, '播放工具', [
     { label: '歌词', icon: 'lyrics', action: () => openCompactDetail('lyrics', '同步歌词') },
     { label: '播放队列', icon: 'queue', action: () => openCompactDetail('queue', '播放队列') },
+    { label: '音质 · ' + (qualityText.textContent || '音质'), icon: 'sliders-horizontal', disabled: qualityButton.disabled, action: () => openChoices(moreButton, '播放音质', Object.keys(qualityLabels).map(level => ({ label: qualityLabels[level], checked: state().preferredQuality === level, action: () => { if (quality) quality(level); } }))) },
     { label: '播放模式：' + (q('[data-mode]').title || '顺序播放'), icon: 'repeat', action: switchMode },
     { label: '曲库', icon: 'library', action: () => openAux('library') },
     { label: '设置', icon: 'settings', action: () => openAux('settings') }
@@ -326,19 +356,20 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
     const value = audioState.userVolume == null ? audio.volume : audioState.userVolume;
     const percent = Math.round(value * 100) + '%';
     if (!volumeDragging) volumeSlider.value = value;
+    volumeSlider.style.setProperty('--cap-vol-progress', percent);
     if (volumeValue.textContent !== percent) {
       volumeValue.textContent = percent;
       volumeSlider.setAttribute('aria-valuetext', percent);
       volumeButton.title = '音量 ' + percent;
     }
     const supports = audioState.volumeSupported !== false;
-    const hint = supports ? '' : '当前音源仅能静音／恢复；连续音量请用设备音量键。';
+    const hint = supports ? '' : '当前通道仅支持静音／恢复；滑块保留目标音量，实际音量请用设备音量键。iOS 可关闭后台播放优先后切歌。';
     if (volumeNote.textContent !== hint) volumeNote.textContent = hint;
-    volumeSlider.title = supports ? '音量' : '静音／恢复（连续音量由系统控制）';
+    volumeSlider.title = supports ? '音量' : '目标音量（当前通道实际音量由系统控制）';
     // Keep a functional 0/100 mute toggle in the fallback instead of displaying
     // a disabled control or a misleading continuous-volume slider.
     volumeSlider.disabled = false;
-    volumeSlider.step = supports ? '0.01' : '1';
+    volumeSlider.step = '0.01';
     volumeSlider.setAttribute('aria-disabled', 'false');
     const muted = String(value === 0);
     if (volumeButton.dataset.muted !== muted) {
@@ -348,6 +379,7 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
   }
   function applyVolume() {
     const value = Number(volumeSlider.value);
+    volumeSlider.style.setProperty('--cap-vol-progress', Math.round(Math.max(0, Math.min(1, value)) * 100) + '%');
     const before = state().userVolume;
     if (volume && value !== (before == null ? audio.volume : before)) volume(value);
     updateVolume();
@@ -368,6 +400,7 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
   volumeSlider.onpointerup = volumeSlider.onpointercancel = volumeSlider.onblur = () => { volumeDragging = false; };
 
   const img = q('.cap-art img');
+  const glowImg = q('.cap-art-glow');
   const ambient = q('.cap-ambient');
   const seek = q('[data-seek]');
   const lyricTasks = createLatestTask();
@@ -440,9 +473,15 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
     colorProbe.removeAttribute('src');
     colorProbe=null;
   }
+  img.onload=()=>{
+    img.classList.add('is-loaded');
+    if (glowImg && img.src) { glowImg.src = img.src; glowImg.hidden = false; }
+  };
   img.onerror=()=>{
+    img.classList.remove('is-loaded');
     img.hidden=true;
     img.alt='封面加载失败';
+    if (glowImg) { glowImg.hidden = true; glowImg.removeAttribute('src'); }
   };
   function syncBackdrop() {
     if (dead || panel.hidden) return;
@@ -717,6 +756,7 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
       transport.setAttribute('aria-label', actionLabel);
     }
     panel.dataset.playing=String(!audio.paused);
+    panel.dataset.resolving=String(!!resolving);
     const modeButton=q('[data-mode]');
     const modeIcon=playMode==='shuffle'?'shuffle':playMode==='one'?'one':'repeat';
     if(modeButton.dataset.icon!==modeIcon){
@@ -728,8 +768,10 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
     const id=JSON.stringify([track?.id,track?.neteaseId,track?.coverUrl]);
     if(id!==identity){
       identity=id;
+      img.classList.remove('is-loaded');
       img.hidden=true;
       img.removeAttribute('src');
+      if (glowImg) { glowImg.hidden = true; glowImg.removeAttribute('src'); }
       img.alt='专辑封面';
       coverUrl = '';
       try{
@@ -749,31 +791,141 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
     refresh();
   }
 
-  for (const el of panel.querySelectorAll('[data-close]')) {
-    el.onclick = closePanel;
+  for (const el of panel.querySelectorAll('button[data-close]')) {
+    el.onclick = () => closePanel();
   }
   q('[data-toggle]').onclick = toggle;
+  // Clean single-tap progression on artwork (no click/dblclick race):
+  // compact -> half -> large -> toggle lyrics/cover
+  let suppressSheetClick = false;
+  q('.cap-art').onclick = () => {
+    if (suppressSheetClick) { suppressSheetClick = false; return; }
+    if (size === 'compact') setSize('half');
+    else if (size === 'half') setSize('large');
+    else showTab(tab === 'lyrics' ? '' : 'lyrics');
+  };
+
+  // Real Apple Sheet vertical pull gesture across ALL sizes (compact, half, large)
+  const sheetOrder = ['compact', 'half', 'large'];
+  let sheetDrag = null;
+  const grabber = q('.cap-fp-grabber');
+  function onSheetDown(event) {
+    if (event.button != null && event.button !== 0) return;
+    if (event.target.closest('button, input, select, textarea, a, .cap-fp-detail, .cap-fp-inline')) return;
+    sheetDrag = {
+      id: event.pointerId,
+      x0: event.clientX,
+      y0: event.clientY,
+      t0: Date.now(),
+      dy: 0,
+      active: false,
+    };
+    suppressSheetClick = false;
+  }
+  function onSheetMove(event) {
+    if (!sheetDrag || event.pointerId !== sheetDrag.id) return;
+    const dx = event.clientX - sheetDrag.x0;
+    const dy = event.clientY - sheetDrag.y0;
+    if (!sheetDrag.active) {
+      if (Math.hypot(dx, dy) < 8) return;
+      if (Math.abs(dy) <= Math.abs(dx) * 1.15) {
+        sheetDrag = null;
+        return;
+      }
+      sheetDrag.active = true;
+      panel.classList.add('is-sheet-dragging');
+      try { panel.setPointerCapture(event.pointerId); } catch (_) {}
+    }
+    sheetDrag.dy = dy;
+    const damped = dy < 0 && size === 'large' ? dy * 0.25 : dy * 0.88;
+    panel.style.transform = `translateY(${Math.round(Math.max(-48, Math.min(48, damped)))}px)`;
+    event.preventDefault();
+  }
+  function onSheetEnd(event) {
+    if (!sheetDrag || event.pointerId !== sheetDrag.id) return;
+    const d = sheetDrag;
+    sheetDrag = null;
+    panel.classList.remove('is-sheet-dragging');
+    try { if (panel.hasPointerCapture?.(event.pointerId)) panel.releasePointerCapture(event.pointerId); } catch (_) {}
+    if (!d.active) return;
+    suppressSheetClick = true;
+    const dt = Math.max(1, Date.now() - d.t0);
+    const velocity = d.dy / dt;
+    const idx = sheetOrder.indexOf(size);
+    const downThreshold = size === 'compact' ? 42 : 56;
+    const upThreshold = size === 'compact' ? -36 : -48;
+    if (event.type !== 'pointerup') { panel.style.transform = ''; return; }
+    if (d.dy > downThreshold || velocity > 0.45) {
+      if (idx > 0) {
+        panel.style.transform = '';
+        setSize(sheetOrder[idx - 1]);
+      } else {
+        closePanel();
+      }
+    } else if (d.dy < upThreshold || velocity < -0.45) {
+      panel.style.transform = '';
+      if (idx < sheetOrder.length - 1) setSize(sheetOrder[idx + 1]);
+    } else {
+      panel.style.transform = '';
+    }
+  }
+  panel.addEventListener('pointerdown', onSheetDown);
+  panel.addEventListener('pointermove', onSheetMove);
+  panel.addEventListener('pointerup', onSheetEnd);
+  panel.addEventListener('pointercancel', onSheetEnd);
+  panel.addEventListener('lostpointercapture', onSheetEnd);
+  if (grabber) {
+    grabber.onclick = event => {
+      if (suppressSheetClick) { suppressSheetClick = false; event.preventDefault(); return; }
+      closePanel();
+    };
+  }
+
+  // Global keyboard shortcuts while player is open (Space, ArrowLeft/Right ±5s, Esc)
+  function onDocKeyDown(event) {
+    if (panel.hidden || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (D.querySelector('.cap-dialog-overlay, .cap-ui-portal, .shiyi-overlay, .cap-song-picker-overlay, .cap-recall')) return;
+    const tag = event.target?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || event.target?.isContentEditable) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closePanel();
+    } else if (event.key === ' ' && tag !== 'BUTTON') {
+      event.preventDefault();
+      toggle?.();
+    } else if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && Number.isFinite(audio.duration)) {
+      event.preventDefault();
+      const delta = event.key === 'ArrowRight' ? 5 : -5;
+      audio.currentTime = Math.max(0, Math.min(audio.duration, (audio.currentTime || 0) + delta));
+      updateTime();
+    }
+  }
+  D.addEventListener('keydown', onDocKeyDown);
   q('[data-prev]').onclick = () => next(-1);
   q('[data-next]').onclick = () => next(1);
   q('[data-lyrics]').onclick = () => { showTab(tab === 'lyrics' ? '' : 'lyrics'); };
   q('[data-queue]').onclick = () => { showTab(tab==='queue'?(size==='large'?'lyrics':''):'queue'); };
+  const endSeek = () => { dragging = false; delete panel.dataset.seeking; };
   seek.oninput = () => {
     dragging = true;
+    panel.dataset.seeking = 'true';
     const dur = Number(seek.max) || 0;
     seek.style.setProperty('--cap-progress', (dur > 0 ? (Number(seek.value) / dur) * 100 : 0) + '%');
     q('[data-elapsed]').textContent = clock(Number(seek.value));
   };
   seek.onchange = () => {
     if (Number.isFinite(audio.duration)) audio.currentTime = Number(seek.value);
-    dragging = false;
+    endSeek();
   };
-  seek.onpointercancel = () => { dragging = false; };
+  seek.onpointerup = endSeek;
+  seek.onpointercancel = endSeek;
 
   const events = ['timeupdate', 'durationchange', 'play', 'pause', 'ended', 'loadedmetadata', 'volumechange'];
   const onTime=()=>updateTime(); for (const ev of events) audio.addEventListener(ev, ev==='timeupdate'?onTime:refresh);
   emitIsland();
   return {
     open() {
+      cancelCloseAnim();
       if (!panel.hidden) return;
       const island = D.querySelector('#capricorn-hub .cap-island');
       panel.hidden = false;
@@ -803,6 +955,8 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
       W.visualViewport?.removeEventListener('scroll',scheduleViewport);
       mediaListener(motion, 'remove');
       mediaListener(transparency, 'remove');
+      cancelCloseAnim();
+      D.removeEventListener('keydown', onDocKeyDown);
       D.removeEventListener('visibilitychange',visibility);
       for(const event of events)audio.removeEventListener(event,event==='timeupdate'?onTime:refresh);
       img.onload=img.onerror=null;

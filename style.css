@@ -2508,3 +2508,188 @@ body[data-cap-paper="ink"] #shiyi-dock .shiyi-dossier-rows .shiyi-item-delete { 
 @media (prefers-reduced-motion:reduce) {
   #capricorn-hub > .cap-island,.si-edge-handle {transition:none !important;animation:none !important;}
 }
+
+:root { --cap-spring: cubic-bezier(0.32, 0.72, 0, 1); }
+@keyframes capDialogOverlayIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes capDialogOverlayOut { from { opacity: 1; } to { opacity: 0; } }
+@keyframes capDialogCardIn { from { opacity: 0; transform: scale(0.92) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+@keyframes capDialogCardOut { from { opacity: 1; transform: scale(1) translateY(0); } to { opacity: 0; transform: scale(0.94) translateY(6px); } }
+
+.cap-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.34);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  animation: capDialogOverlayIn 0.2s ease both;
+}
+.cap-dialog-overlay.is-closing {
+  pointer-events: none;
+  animation: capDialogOverlayOut 0.17s ease both;
+}
+.cap-dialog-card {
+  width: min(340px, 100%);
+  max-height: 82dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 22px;
+  border: 0.5px solid rgba(0, 0, 0, 0.10);
+  background: rgba(250, 250, 250, 0.86);
+  color: #1c1c1e;
+  -webkit-backdrop-filter: blur(36px) saturate(195%);
+  backdrop-filter: blur(36px) saturate(195%);
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.92),
+    0 24px 64px rgba(0, 0, 0, 0.24),
+    0 4px 12px rgba(0, 0, 0, 0.08);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  animation: capDialogCardIn 0.28s var(--cap-spring) both;
+}
+.cap-dialog-card.is-wide { width: min(460px, 100%); }
+.cap-dialog-overlay.is-closing .cap-dialog-card { animation: capDialogCardOut 0.17s var(--cap-spring) both; }
+
+body[data-cap-look="dark"] .cap-dialog-card {
+  background: rgba(34, 34, 34, 0.86);
+  color: #f5f5f5;
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.22),
+    0 28px 72px rgba(0, 0, 0, 0.62),
+    0 4px 14px rgba(0, 0, 0, 0.30);
+}
+
+.cap-dialog-body {
+  padding: 20px 20px 16px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  text-align: center;
+}
+.cap-dialog-card.is-wide .cap-dialog-body { text-align: left; }
+.cap-dialog-title {
+  margin: 0 0 6px;
+  font-size: 16.5px;
+  font-weight: 680;
+  letter-spacing: -0.015em;
+}
+.cap-dialog-message {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  opacity: 0.78;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 44dvh;
+  overflow: auto;
+}
+.cap-dialog-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 14px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(128, 128, 128, 0.24);
+  background: rgba(128, 128, 128, 0.10);
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+  resize: vertical;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+.cap-dialog-card.is-wide textarea.cap-dialog-input {
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.cap-dialog-input:focus {
+  border-color: currentColor;
+  background: rgba(128, 128, 128, 0.06);
+  box-shadow: 0 0 0 3px rgba(128, 128, 128, 0.14);
+}
+@media (pointer: coarse) {
+  .cap-dialog-input { font-size: 16px; }
+}
+
+.cap-dialog-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-top: 0.5px solid rgba(128, 128, 128, 0.22);
+}
+.cap-dialog-actions.is-single { grid-template-columns: 1fr; }
+.cap-dialog-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  padding: 13px 12px;
+  min-height: 46px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.16s ease, opacity 0.14s ease;
+}
+.cap-dialog-btn + .cap-dialog-btn {
+  border-left: 0.5px solid rgba(128, 128, 128, 0.22);
+}
+@media (hover: hover) {
+  .cap-dialog-btn:hover { background: rgba(128, 128, 128, 0.10); }
+}
+.cap-dialog-btn:active { background: rgba(128, 128, 128, 0.18); }
+.cap-dialog-btn.is-primary { font-weight: 680; }
+.cap-dialog-btn.is-danger { color: #ff3b30; font-weight: 660; }
+body[data-cap-look="dark"] .cap-dialog-btn.is-danger { color: #ff5c54; }
+
+/* ---------- 2. Floating Apple HUD Toast (ui-dialog.js) ---------- */
+@keyframes capToastIn { from { opacity: 0; transform: translate(-50%, -12px) scale(0.94); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+@keyframes capToastOut { from { opacity: 1; transform: translate(-50%, 0) scale(1); } to { opacity: 0; transform: translate(-50%, -8px) scale(0.95); } }
+
+.cap-hud-toast {
+  position: fixed;
+  top: max(14px, env(safe-area-inset-top, 14px));
+  left: 50%;
+  transform: translate(-50%, 0);
+  z-index: 2147483647;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(88vw, 380px);
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 0.5px solid rgba(0, 0, 0, 0.10);
+  background: rgba(252, 252, 252, 0.84);
+  color: #1c1c1e;
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  backdrop-filter: blur(28px) saturate(190%);
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.92),
+    0 12px 32px rgba(0, 0, 0, 0.16),
+    0 2px 6px rgba(0, 0, 0, 0.06);
+  font: 600 13px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", system-ui, sans-serif;
+  pointer-events: none;
+  -webkit-font-smoothing: antialiased;
+}
+body[data-cap-look="dark"] .cap-hud-toast {
+  background: rgba(34, 34, 34, 0.86);
+  color: #f5f5f5;
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.22),
+    0 14px 36px rgba(0, 0, 0, 0.52);
+}
+.cap-hud-toast.is-visible { animation: capToastIn 0.28s var(--cap-spring) both; }
+.cap-hud-toast.is-leaving { animation: capToastOut 0.2s var(--cap-spring) both; }
+.cap-hud-icon { display: inline-flex; flex: none; opacity: 0.85; }
+.cap-hud-toast[data-kind="success"] .cap-hud-icon { color: #30b852; opacity: 1; }
+.cap-hud-toast[data-kind="warn"] .cap-hud-icon { color: #e5930a; opacity: 1; }
+.cap-hud-toast[data-kind="error"] .cap-hud-icon { color: #ff3b30; opacity: 1; }
+.cap-hud-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+

@@ -24,8 +24,8 @@ export function dockPoint(kind, target, bounds, width, height, gap = 10) {
   return clampIsland(bounds, centerX, top, width, height);
 }
 
-export function mountMobile({ root, island, nav, onResume }) {
-  const W = window, D = document;
+export function mountMobile({ root, island, nav, onResume, onLongPress }) {
+  const D = root.ownerDocument, W = D.defaultView;
   const storage = (() => { try { return W.localStorage; } catch { return null; } })();
   let settings = readFloatSettings(storage);
   let start = null, moved = false, suppress = false, raf = 0;
@@ -40,7 +40,7 @@ export function mountMobile({ root, island, nav, onResume }) {
   let saved = readSaved();
 
   function bounds() { return viewport(W); }
-  function size() { const r = island.getBoundingClientRect(); return {w:r.width || 44, h:r.height || 44}; }
+  function size() { return {w:island.offsetWidth || 44, h:island.offsetHeight || 44}; }
   function put(x, y) {
     const {w,h} = size();
     const p = clampIsland(bounds(), x, y, w, h);
@@ -106,29 +106,53 @@ export function mountMobile({ root, island, nav, onResume }) {
     saved = {x,y};
     try { storage?.setItem(POSITION_KEY, JSON.stringify(saved)); } catch {}
   }
+  let pressTimer = 0;
+  function clearPress() {
+    if (pressTimer) { W.clearTimeout(pressTimer); pressTimer = 0; }
+  }
   function down(e) {
-    if (settings.dock !== 'free' || !nav.hidden || (e.button != null && e.button !== 0)) return;
+    if (!nav.hidden || (e.button != null && e.button !== 0)) return;
     const r = island.getBoundingClientRect();
-    start = {id:e.pointerId,x:e.clientX,y:e.clientY,left:r.left,top:r.top};
-    moved=false;
-    try {island.setPointerCapture(e.pointerId);} catch {}
+    start = { id: e.pointerId, x: e.clientX, y: e.clientY, left: r.left, top: r.top, canDrag: settings.dock === 'free' };
+    moved = false;
+    clearPress();
+    if (typeof onLongPress === 'function') {
+      pressTimer = W.setTimeout(() => {
+        pressTimer = 0;
+        if (!start || moved || disposed) return;
+        suppress = true;
+        start = null;
+        delete island.dataset.dragging;
+        onLongPress();
+      }, 520);
+    }
+    if (start.canDrag) {
+      try { island.setPointerCapture(e.pointerId); } catch {}
+    }
   }
   function move(e) {
     if (!start || e.pointerId !== start.id) return;
-    const dx=e.clientX-start.x, dy=e.clientY-start.y;
-    if (!moved && Math.hypot(dx,dy)<8) return;
-    moved=true;
-    put(start.left+dx,start.top+dy);
+    const dx = e.clientX - start.x, dy = e.clientY - start.y;
+    if (!moved && Math.hypot(dx, dy) < 8) return;
+    clearPress();
+    if (!start.canDrag) {
+      start = null;
+      return;
+    }
+    if (!moved) { moved = true; island.dataset.dragging = 'true'; }
+    put(start.left + dx, start.top + dy);
     e.preventDefault();
   }
   function end(e) {
+    clearPress();
     if (!start || e.pointerId !== start.id) return;
+    delete island.dataset.dragging;
     if (moved) {
-      suppress=true;
-      const r=island.getBoundingClientRect();
-      save(r.left,r.top);
+      suppress = true;
+      if (e.type === 'pointerup' && last) save(last.x, last.y);
     }
-    start=null;
+    start = null;
+    scheduleFit();
   }
   function setSettings(next) {
     const incoming = {...settings, ...next};
@@ -168,6 +192,7 @@ export function mountMobile({ root, island, nav, onResume }) {
   island.addEventListener('pointermove',move);
   island.addEventListener('pointerup',end);
   island.addEventListener('pointercancel',end);
+  island.addEventListener('lostpointercapture',end);
   W.addEventListener('resize',scheduleFit);
   W.addEventListener('scroll',scroll,true);
   W.visualViewport?.addEventListener('resize',scheduleFit);
@@ -185,6 +210,8 @@ export function mountMobile({ root, island, nav, onResume }) {
     consumeDrag(){const value=suppress;suppress=false;return value;},
     destroy(){
       disposed=true;
+      clearPress();
+      delete island.dataset.dragging;
       if(raf)W.cancelAnimationFrame(raf);
       W.clearInterval(poll);
       ro?.disconnect();anchorObserver?.disconnect();observer?.disconnect();
@@ -192,6 +219,7 @@ export function mountMobile({ root, island, nav, onResume }) {
       island.removeEventListener('pointermove',move);
       island.removeEventListener('pointerup',end);
       island.removeEventListener('pointercancel',end);
+      island.removeEventListener('lostpointercapture',end);
       W.removeEventListener('resize',scheduleFit);
       W.removeEventListener('scroll',scroll,true);
       W.visualViewport?.removeEventListener('resize',scheduleFit);
