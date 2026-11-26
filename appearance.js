@@ -316,14 +316,14 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
   }
 
   function declarations(s) {
-    if (typeof s !== 'string' || s.length > 50000 || /[{}@]/.test(s)) {
+    if (typeof s !== 'string' || s.length > 1000000 || /[{}@]/.test(s)) {
       throw Error('声明仅支持 CSS 属性，不支持大括号或 @ 规则');
     }
     return validateCssResources(s);
   }
 
   function scopedCss(s, scopePrefix, keepPrefix) {
-    if (typeof s !== 'string' || s.length > 500000) throw Error('高级 CSS 长度超出限制');
+    if (typeof s !== 'string' || s.length > 1000000) throw Error('高级 CSS 长度超出限制');
     validateCssResources(s);
     const cleaned = s.replace(/\/\*[\s\S]*?\*\//g, '').trim();
     if (!cleaned) return '';
@@ -592,7 +592,7 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
   const button=(name,fn)=>{const b=D.createElement('button');b.type='button';b.textContent=name;b.onclick=fn;toolsRow.append(b);return b;};
   const preview=text=>{scopedCss(text,'#capricorn-hub',['#capricorn-hub','.cap-full-player']);cssField.value=text;msg.textContent='已载入，请点击保存并应用';};
   button('导入 CSS',()=>file.click());
-  file.onchange=async()=>{try{const f=file.files?.[0];if(!f)return;if(f.size>2000000)throw Error('CSS 文件过大');preview(await f.text());}catch(e){msg.textContent=e.message;}finally{file.value='';}};
+  file.onchange=async()=>{try{const f=file.files?.[0];if(!f)return;if(f.size>4000000)throw Error('CSS 文件过大');preview(await f.text());}catch(e){msg.textContent=e.message;}finally{file.value='';}};
   button('导出 CSS',()=>{const u=URL.createObjectURL(new Blob([cssField.value],{type:'text/css'}));const a=D.createElement('a');a.href=u;a.download='sound-isle-theme.css';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);});
   const remote=button('加载 URL 主题',async()=>{remote.disabled=true;try{const u=new URL(urlField.value);if(u.protocol!=='https:'||u.username||u.password)throw Error('仅支持 HTTPS 主题地址');const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),15000);try{const r=await fetch(u.href,{credentials:'omit',redirect:'error',signal:controller.signal});if(!r.ok)throw Error('主题请求失败 '+r.status);const text=await r.text();preview(text);p.playerThemeUrl=u.href;}finally{clearTimeout(timer);}}catch(e){msg.textContent=e.message;}finally{remote.disabled=false;}});
   cssEditor.append(urlField,toolsRow,file);
@@ -625,7 +625,7 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
   const themeStatus = fontBox.querySelector('[data-theme-status]');
   const themeFile = fontBox.querySelector('[data-theme-file]');
   function validateTheme(css) {
-    if (typeof css !== 'string' || css.length > 500000) throw Error('主题不能超过50万字符');
+    if (typeof css !== 'string' || css.length > 1000000) throw Error('主题不能超过100万字符');
     validateCssResources(css);
     return css;
   }
@@ -639,7 +639,7 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
     catch(e) { themeStatus.textContent = e.message; }
   }
   fontBox.querySelector('[data-theme-import]').onclick = () => themeFile.click();
-  themeFile.onchange = async () => { try { const f = themeFile.files?.[0]; if (!f) return; if (f.size > 2000000) throw Error('文件不能超过2MB'); const css = validateTheme(await f.text()); if (!disposed) commitTheme({enabled:true,css}); } catch(e) { themeStatus.textContent = e.message; } finally { themeFile.value = ''; } };
+  themeFile.onchange = async () => { try { const f = themeFile.files?.[0]; if (!f) return; if (f.size > 4000000) throw Error('文件不能超过4MB'); const css = validateTheme(await f.text()); if (!disposed) commitTheme({enabled:true,css}); } catch(e) { themeStatus.textContent = e.message; } finally { themeFile.value = ''; } };
   fontBox.querySelector('[data-theme-export]').onclick = () => { const url = W.URL.createObjectURL(new W.Blob([localTheme.css ?? bundledCss], {type:'text/css'})); const a = D.createElement('a'); a.href=url; a.download='custom-theme.css'; a.click(); W.setTimeout(()=>W.URL.revokeObjectURL(url),1000); };
   fontBox.querySelector('[data-theme-toggle]').onclick = () => commitTheme({...localTheme,enabled:!localTheme.enabled});
   fontBox.querySelector('[data-theme-reset]').onclick = () => commitTheme({enabled:false,css:null});
