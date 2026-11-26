@@ -296,22 +296,40 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
   sheet.id = 'capricorn-custom-note-css';
   D.head.append(sheet);
 
-  function declarations(s) {
-    if (typeof s !== 'string' || s.length > 50000 || /[{}@\\<>]/.test(s) || /url\s*\(|image-set\s*\(|expression\s*\(|javascript:/i.test(s)) {
-      throw Error('声明仅支持本地 CSS 属性，不支持大括号、@ 规则或外部资源');
+  // Theme resources are opt-in HTTPS URLs; never allow CSS escapes or nested imports.
+  function validateCssResources(s) {
+    const clean = s.replace(/\/\*[\s\S]*?\*\//g, '');
+    if (/[<>\\]/.test(clean) || /@import\b|@charset\b|(?:image-set|image|src|expression)\s*\(|javascript:/i.test(clean)) {
+      throw Error('CSS 不支持 @import、CSS 转义或不安全资源语法');
     }
+    const rest = clean.replace(/\burl\s*\(\s*(?:"([^"]*)"|'([^']*)'|([^"'()\s]+))\s*\)/gi, (_, a, b, c) => {
+      const raw = a ?? b ?? c;
+      let u;
+      try { u = new URL(raw); } catch { throw Error('资源必须使用完整 HTTPS 地址'); }
+      if (!/^https:\/\//i.test(raw) || u.protocol !== 'https:' || u.username || u.password || /[\u0000-\u0020\u007f]/.test(raw)) {
+        throw Error('资源仅允许无凭据的 HTTPS 地址');
+      }
+      return '';
+    });
+    if (/\burl\s*\(/i.test(rest)) throw Error('无效的 CSS url()');
     return s;
+  }
+
+  function declarations(s) {
+    if (typeof s !== 'string' || s.length > 50000 || /[{}@]/.test(s)) {
+      throw Error('声明仅支持 CSS 属性，不支持大括号或 @ 规则');
+    }
+    return validateCssResources(s);
   }
 
   function scopedCss(s, scopePrefix, keepPrefix) {
     if (typeof s !== 'string' || s.length > 500000) throw Error('高级 CSS 长度超出限制');
-    if (/[<>\\]|@import|@charset|@font-face|url\s*\(|image-set\s*\(|expression\s*\(|javascript:/i.test(s)) {
-      throw Error('高级 CSS 不支持外部资源、@import 或不安全字符');
-    }
+    validateCssResources(s);
     const cleaned = s.replace(/\/\*[\s\S]*?\*\//g, '').trim();
     if (!cleaned) return '';
     return cleaned.replace(/([^{}]+)\{([^{}]*)\}/g, (_, sel, body) => {
       const trimmed = sel.trim();
+      if (/^@font-face$/i.test(trimmed)) return `${trimmed} { ${body} }\n`;
       if (/^@keyframes\b/i.test(trimmed)) return `${trimmed} { ${body} }\n`;
       const scoped = trimmed.split(',').map(part => {
         const t = part.trim();
@@ -608,7 +626,7 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
   const themeFile = fontBox.querySelector('[data-theme-file]');
   function validateTheme(css) {
     if (typeof css !== 'string' || css.length > 500000) throw Error('主题不能超过50万字符');
-    if (/@import|url\s*\(|image-set\s*\(|expression\s*\(|javascript:|\\/i.test(css)) throw Error('本地主题不允许外部资源或 CSS 转义');
+    validateCssResources(css);
     return css;
   }
   function renderLocalTheme() {
