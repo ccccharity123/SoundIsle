@@ -163,6 +163,12 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
         <p class="cap-css-status" data-font-status></p>
       </div>
 
+      <details class="cap-local-theme-editor">
+        <summary>本地主题文件</summary>
+        <p>仅导入信任的 CSS。完整主题可改变界面布局；异常时可通过浏览器清除 capricorn_local_theme_v1 配置恢复。</p>
+        <div class="cap-css-actions"><button type="button" data-theme-import>导入 CSS</button><button type="button" data-theme-export>导出 CSS</button><button type="button" data-theme-toggle>启用 / 停用主题</button><button type="button" data-theme-reset>恢复默认主题</button></div>
+        <input type="file" accept=".css,text/css" data-theme-file hidden><p data-theme-status role="status"></p>
+      </details>
       <details class="cap-css-editor">
         <summary>自定义 CSS（灵动岛形态 & 播放器面板）</summary>
         <p class="cap-css-hint">支持实时预览。可定制 <code>.cap-island</code>、<code>.cap-island[data-playing="false"]</code>（未播放球体）、<code>.cap-island[data-playing="true"]</code>（播放拉长态）、<code>nav</code> 及 <code>.cap-full-player</code>。</p>
@@ -589,8 +595,39 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
   const fontBox = D.createElement('section');
   fontBox.className = 'cap-appearance';
   fontBox.dataset.capSettingsSection = 'fonts';
-  fontBox.append(fontManagers[0], playerBox.querySelector('.cap-css-editor'));
+  fontBox.append(fontManagers[0], playerBox.querySelector('.cap-local-theme-editor'), playerBox.querySelector('.cap-css-editor'));
   settings.append(backgroundBox, fontBox);
+  const themeKey = 'capricorn_local_theme_v1';
+  const localSheet = D.createElement('style');
+  localSheet.id = 'capricorn-local-theme-css';
+  D.head.append(localSheet);
+  let localTheme = { enabled: true, css: null };
+  try { localTheme = {...localTheme, ...JSON.parse(W.localStorage.getItem(themeKey) || '{}')}; } catch {}
+  let bundledCss = '';
+  const themeStatus = fontBox.querySelector('[data-theme-status]');
+  const themeFile = fontBox.querySelector('[data-theme-file]');
+  function validateTheme(css) {
+    if (typeof css !== 'string' || css.length > 500000) throw Error('主题不能超过50万字符');
+    if (/@import|url\s*\(|image-set\s*\(|expression\s*\(|javascript:|\\/i.test(css)) throw Error('本地主题不允许外部资源或 CSS 转义');
+    return css;
+  }
+  function renderLocalTheme() {
+    if (disposed) return;
+    try { localSheet.textContent = localTheme.enabled ? validateTheme(localTheme.css ?? bundledCss) : ''; themeStatus.textContent = localTheme.enabled ? '主题已启用' : '主题已停用'; }
+    catch(e) { localSheet.textContent = ''; themeStatus.textContent = e.message; }
+  }
+  function commitTheme(next) {
+    try { if (next.css !== null) validateTheme(next.css); W.localStorage.setItem(themeKey, JSON.stringify(next)); localTheme = next; renderLocalTheme(); }
+    catch(e) { themeStatus.textContent = e.message; }
+  }
+  fontBox.querySelector('[data-theme-import]').onclick = () => themeFile.click();
+  themeFile.onchange = async () => { try { const f = themeFile.files?.[0]; if (!f) return; if (f.size > 2000000) throw Error('文件不能超过2MB'); const css = validateTheme(await f.text()); if (!disposed) commitTheme({enabled:true,css}); } catch(e) { themeStatus.textContent = e.message; } finally { themeFile.value = ''; } };
+  fontBox.querySelector('[data-theme-export]').onclick = () => { const url = W.URL.createObjectURL(new W.Blob([localTheme.css ?? bundledCss], {type:'text/css'})); const a = D.createElement('a'); a.href=url; a.download='custom-theme.css'; a.click(); W.setTimeout(()=>W.URL.revokeObjectURL(url),1000); };
+  fontBox.querySelector('[data-theme-toggle]').onclick = () => commitTheme({...localTheme,enabled:!localTheme.enabled});
+  fontBox.querySelector('[data-theme-reset]').onclick = () => commitTheme({enabled:false,css:null});
+  renderLocalTheme();
+  fetch(new URL('./custom-theme.css', import.meta.url), {cache:'no-cache'}).then(r=>{if(!r.ok) throw Error('主题文件不可用'); return r.text();}).then(css=>{bundledCss=validateTheme(css); renderLocalTheme();}).catch(()=>{});
+
   const onTheme = () => apply(p);
   themeSelect.addEventListener('change', onTheme);
   if (media.addEventListener) media.addEventListener('change', onTheme);
@@ -608,6 +645,7 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
       if (media.removeEventListener) media.removeEventListener('change', onTheme);
       else if (media.removeListener) media.removeListener(onTheme);
       sheet.remove();
+      localSheet.remove();
       if (inlineDrawer) inlineDrawer.remove();
       playerBox.remove();
       backgroundBox.remove();

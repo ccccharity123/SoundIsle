@@ -318,14 +318,14 @@ async function boot(){
   follow.firstElementChild.checked=W.localStorage.getItem('capricorn_follow_character')!=='off';
   follow.firstElementChild.onchange=()=>W.localStorage.setItem('capricorn_follow_character',follow.firstElementChild.checked?'on':'off');
   services.append(follow);
+for(const [key,label] of [['startup','进入酒馆时自动播放'],['open','打开播放器时自动播放'],['story','静止时允许剧情 BGM 自动播放']]){
+ const row=D.createElement('label');row.className='cap-ios-row';const title=D.createElement('span');title.textContent=label;const input=D.createElement('input');input.type='checkbox';input.checked=W.localStorage.getItem('capricorn_auto_'+key)==='on';input.onchange=()=>W.localStorage.setItem('capricorn_auto_'+key,input.checked?'on':'off');row.append(title,input);services.append(row);
+}
   const story=D.createElement('label');
   story.innerHTML='<input type="checkbox"> 跟随剧情 BGM';
   story.firstElementChild.checked=W.localStorage.getItem('capricorn_follow_story')!=='off';
   story.firstElementChild.onchange=()=>W.localStorage.setItem('capricorn_follow_story',story.firstElementChild.checked?'on':'off');
   services.append(story);
-for(const [key,label] of [['startup','进入酒馆时自动播放'],['open','打开播放器时自动播放'],['story','静止时允许剧情 BGM 自动播放']]){
- const row=D.createElement('label');row.className='cap-ios-row';const title=D.createElement('span');title.textContent=label;const input=D.createElement('input');input.type='checkbox';input.checked=W.localStorage.getItem('capricorn_auto_'+key)==='on';input.onchange=()=>W.localStorage.setItem('capricorn_auto_'+key,input.checked?'on':'off');row.append(title,input);services.append(row);
-}
   settings.append(services);
   const controls=D.createElement('section');
   controls.dataset.capSettingsSection='backup';

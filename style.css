@@ -3833,5 +3833,5 @@ body[data-cap-player-open="true"] #capricorn-hub > .cap-island { visibility:hidd
 body[data-cap-look="light"] .cap-full-player.cap-player-layout[data-size] { --glass-bg: rgba(255,255,255,.86); --cap-glass-work-bg: rgba(255,255,255,.86); }
 body[data-cap-look="dark"] .cap-full-player.cap-player-layout[data-size] { --glass-bg: rgba(24,24,26,.86); --cap-glass-work-bg: rgba(24,24,26,.86); }
 
-/* Standalone: no memory or resonance panels are mounted. */
+/* Standalone navigation */
 #capricorn-hub[data-sound-isle-standalone="true"] .cap-hub-primary { grid-template-columns:repeat(2,minmax(0,1fr)); }
