@@ -9,16 +9,20 @@ export function createScheduler(host, hidden = () => false, { maxBytes = default
   const running = new Map();
   const runningKeys = new Set();
   let closed = false;
+  let suspended = false;
   let handle = null;
   let scope;
   let version;
   let foreground = 0;
+  let inputUntil = 0;
+  let inputTimer = null;
   let reserved = 0;
   const clock = () => host.performance?.now?.() ?? Date.now();
 
   function nextJob() {
     let next;
     for (const [key, job] of jobs) {
+      if (job.lane !== 'audio' && (suspended || clock() < inputUntil || [...running.keys()].some(lane => lane !== 'audio'))) continue;
       if (running.has(job.lane) || runningKeys.has(key) || foreground && !job.duringForeground) continue;
       if (!next || job.priority > next[1].priority) next = [key, job];
     }
@@ -32,9 +36,9 @@ export function createScheduler(host, hidden = () => false, { maxBytes = default
   }
 
   function arm() {
-    if (closed || jobs.size === 0 || hidden()) return;
+    if (closed || jobs.size === 0 || hidden()) { cancelHandle(); return; }
     const next = nextJob();
-    if (!next) return;
+    if (!next) { cancelHandle(); return; }
     const type = next[1].lane === 'audio' || typeof host.requestIdleCallback !== 'function' ? 'timer' : 'idle';
     if (handle?.type === type) return;
     cancelHandle();
@@ -45,7 +49,7 @@ export function createScheduler(host, hidden = () => false, { maxBytes = default
       handle = null;
       void drain();
     };
-    pending.id = type === 'idle' ? host.requestIdleCallback(run, { timeout: 1500 }) : host.setTimeout(run, 0);
+    pending.id = type === 'idle' ? host.requestIdleCallback(run, { timeout: 1500 }) : host.setTimeout(run, type === 'timer' && next[1].lane !== 'audio' ? 16 : 0);
   }
 
   function createTask() {
@@ -158,11 +162,27 @@ export function createScheduler(host, hidden = () => false, { maxBytes = default
       for (const active of running.values()) if (active.key === key) active.task.abort();
       arm();
     },
-    resume: arm,
-    status: () => ({ pending: jobs.size, running: running.size > 0, stats: Object.fromEntries(stats) }),
+    noteInput(ms = 700) {
+      if (closed) return;
+      ms = Number.isFinite(ms) ? Math.max(0, ms) : 700;
+      inputUntil = Math.max(inputUntil, clock() + ms);
+      if (inputTimer !== null) host.clearTimeout(inputTimer);
+      inputTimer = host.setTimeout(() => { inputTimer = null; arm(); }, Math.ceil(Math.max(0, inputUntil - clock())));
+      for (const { job, task } of running.values()) if (job.lane === 'index' || job.lane === 'vector') task.abort();
+      arm();
+    },
+    suspend() {
+      suspended = true;
+      cancelHandle();
+      for (const { job, task } of running.values()) if (job.lane !== 'audio') task.abort();
+      arm(); // Preserve pending audio work when only maintenance is suspended.
+    },
+    resume() { suspended = false; arm(); },
+    status: () => ({ pending: jobs.size, lanes: [...running.keys()], inputDeferred: clock() < inputUntil, running: running.size > 0, stats: Object.fromEntries(stats) }),
     budget: () => ({ reserved, maxBytes }),
     close() {
       closed = true;
+      if (inputTimer !== null) host.clearTimeout(inputTimer);
       jobs.clear();
       for (const { task } of running.values()) task.abort();
       cancelHandle();

@@ -25,7 +25,7 @@ export function dockPoint(kind, target, bounds, width, height, gap = 10) {
 }
 
 export function mountMobile({ root, island, nav, onResume, onLongPress }) {
-  const D = root.ownerDocument, W = D.defaultView;
+  const W = window, D = document;
   const storage = (() => { try { return W.localStorage; } catch { return null; } })();
   let settings = readFloatSettings(storage);
   let start = null, moved = false, suppress = false, raf = 0;
@@ -40,7 +40,7 @@ export function mountMobile({ root, island, nav, onResume, onLongPress }) {
   let saved = readSaved();
 
   function bounds() { return viewport(W); }
-  function size() { return {w:island.offsetWidth || 44, h:island.offsetHeight || 44}; }
+  function size() { const r = island.getBoundingClientRect(); return {w:r.width || 44, h:r.height || 44}; }
   function put(x, y) {
     const {w,h} = size();
     const p = clampIsland(bounds(), x, y, w, h);
@@ -149,10 +149,10 @@ export function mountMobile({ root, island, nav, onResume, onLongPress }) {
     delete island.dataset.dragging;
     if (moved) {
       suppress = true;
-      if (e.type === 'pointerup' && last) save(last.x, last.y);
+      const r = island.getBoundingClientRect();
+      save(r.left, r.top);
     }
     start = null;
-    scheduleFit();
   }
   function setSettings(next) {
     const incoming = {...settings, ...next};
@@ -192,7 +192,6 @@ export function mountMobile({ root, island, nav, onResume, onLongPress }) {
   island.addEventListener('pointermove',move);
   island.addEventListener('pointerup',end);
   island.addEventListener('pointercancel',end);
-  island.addEventListener('lostpointercapture',end);
   W.addEventListener('resize',scheduleFit);
   W.addEventListener('scroll',scroll,true);
   W.visualViewport?.addEventListener('resize',scheduleFit);
@@ -219,7 +218,6 @@ export function mountMobile({ root, island, nav, onResume, onLongPress }) {
       island.removeEventListener('pointermove',move);
       island.removeEventListener('pointerup',end);
       island.removeEventListener('pointercancel',end);
-      island.removeEventListener('lostpointercapture',end);
       W.removeEventListener('resize',scheduleFit);
       W.removeEventListener('scroll',scroll,true);
       W.visualViewport?.removeEventListener('resize',scheduleFit);

@@ -8,6 +8,7 @@ import {
   clearBgImage
 } from './fonts.js';
 import { refreshSelect } from './ui-select.js';
+import { uiConfirm, uiToast } from './ui-dialog.js';
 
 export function mountAppearance(settings, root, themeSelect, memoryRoot) {
   const D = root.ownerDocument, W = D.defaultView, key = 'capricorn_appearance_v1';
@@ -78,32 +79,75 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
         </label>
       </div>
 
-      <details class="cap-bg-customizer" open><summary>背景与封面</summary>
-<label>背景来源<select data-pref="bgSource"><option value="auto">主题默认 / 已导入图片</option><option value="album">专辑封面铺满</option><option value="color">专辑取色</option><option value="custom">自定义图片</option></select></label>
-<label>封面形状<select data-pref="coverShape"><option value="auto">主题默认</option><option value="square">方形</option><option value="rounded">圆角</option><option value="circle">圆形</option></select></label>
-<label>图片填充<select data-pref="coverFit"><option value="cover">铺满</option><option value="contain">完整显示</option></select></label><label>底板<select data-pref="coverPlate"><option value="none">无</option><option value="solid">纯色</option><option value="glass">玻璃</option></select></label><label>大卡片封面大小 (<span data-val="coverSize"></span>)<input type="range" min="40" max="320" data-pref-range="coverSize"></label><label>内边距 (<span data-val="coverPadding"></span>)<input type="range" min="0" max="40" data-pref-range="coverPadding"></label><label>边框透明度 (<span data-val="coverOpacity"></span>)<input type="range" min="0" max="100" data-pref-range="coverOpacity"></label><label>边框样式<select data-pref="coverBorderStyle"><option value="solid">实线</option><option value="dashed">虚线</option><option value="double">双线</option></select></label>
-<label>边框颜色<input type="color" data-cover-color></label>
-<label>圆角 (<span data-val="coverRadius"></span>)<input type="range" min="0" max="50" data-pref-range="coverRadius"></label><label>边框宽度 (<span data-val="coverBorder"></span>)<input type="range" min="0" max="12" data-pref-range="coverBorder"></label><label>阴影 (<span data-val="coverShadow"></span>)<input type="range" min="0" max="40" data-pref-range="coverShadow"></label><label>背景饱和度 (<span data-val="bgSaturation"></span>)<input type="range" min="0" max="200" data-pref-range="bgSaturation"></label><label>明暗遮罩 (<span data-val="bgShade"></span>)<input type="range" min="0" max="100" data-pref-range="bgShade"></label>
-        <label>自定义背景色 / 渐变（留空使用主题默认）
-          <div class="cap-color-row">
-            <input type="color" data-bg-picker value="#1c1c1e" aria-label="选取背景颜色">
-            <input type="text" data-pref-text="playerBgColor" placeholder="如 #1a1d2e 或 linear-gradient(135deg,#1d2b64,#f8cdda)">
-            <button type="button" data-clear-bg-color title="清除自定义背景色">清除</button>
+      <details class="cap-bg-customizer" open>
+        <summary>背景与封面</summary>
+        <!-- 以下 4 项会被脚本自动移入「外观 → 封面布局」卡片 -->
+        <label>封面形状<select data-pref="coverShape"><option value="auto">主题默认</option><option value="square">方形</option><option value="rounded">圆角</option><option value="circle">圆形</option></select></label>
+        <label class="cap-range-field"><span class="cap-range-head"><span>封面大小</span><span class="cap-range-pill"><span data-val="coverSize"></span>px</span></span><input type="range" min="40" max="320" data-pref-range="coverSize"></label>
+        <label class="cap-range-field"><span class="cap-range-head"><span>内边距</span><span class="cap-range-pill"><span data-val="coverPadding"></span>px</span></span><input type="range" min="0" max="40" data-pref-range="coverPadding"></label>
+        <label class="cap-range-field"><span class="cap-range-head"><span>圆角</span><span class="cap-range-pill"><span data-val="coverRadius"></span>px</span></span><input type="range" min="0" max="50" data-pref-range="coverRadius"></label>
+
+        <div class="cap-setting-card">
+          <div class="cap-setting-card-title">背景材质与氛围</div>
+          <label>背景来源
+            <select data-pref="bgSource">
+              <option value="auto">主题默认 / 已导入图片</option>
+              <option value="album">专辑封面铺满</option>
+              <option value="color">专辑取色</option>
+              <option value="custom">自定义图片</option>
+            </select>
+          </label>
+          <div class="cap-appearance-grid">
+            <label class="cap-range-field"><span class="cap-range-head"><span>背景透明度</span><span class="cap-range-pill"><span data-val="playerBgOpacity">82</span>%</span></span><input type="range" min="0" max="100" step="1" data-pref-range="playerBgOpacity"></label>
+            <label class="cap-range-field"><span class="cap-range-head"><span>背景模糊度</span><span class="cap-range-pill"><span data-val="playerBgBlur">24</span>px</span></span><input type="range" min="0" max="60" step="1" data-pref-range="playerBgBlur"></label>
+            <label class="cap-range-field"><span class="cap-range-head"><span>背景饱和度</span><span class="cap-range-pill"><span data-val="bgSaturation"></span>%</span></span><input type="range" min="0" max="200" data-pref-range="bgSaturation"></label>
+            <label class="cap-range-field"><span class="cap-range-head"><span>明暗遮罩</span><span class="cap-range-pill"><span data-val="bgShade"></span>%</span></span><input type="range" min="0" max="100" data-pref-range="bgShade"></label>
           </div>
-        </label>
-        <div class="cap-bg-image-row">
-          <button type="button" data-upload-bg>上传背景图</button>
-          <button type="button" data-clear-bg>移除背景图</button>
-          <input type="file" accept="image/*" data-bg-file hidden>
-          <span class="cap-inline-tip" data-bg-tip></span>
+          <label>自定义背景色 / 渐变（留空使用默认）
+            <div class="cap-color-row">
+              <input type="color" data-bg-picker value="#1c1c1e" aria-label="选取背景颜色">
+              <input type="text" data-pref-text="playerBgColor" placeholder="如 #1a1d2e 或 linear-gradient(...)">
+              <button type="button" data-clear-bg-color title="清除自定义背景色">清除</button>
+            </div>
+          </label>
+          <div class="cap-bg-image-row">
+            <button type="button" data-upload-bg class="cap-btn-primary">上传背景图</button>
+            <button type="button" data-clear-bg>移除背景图</button>
+            <input type="file" accept="image/*" data-bg-file hidden>
+            <span class="cap-inline-tip" data-bg-tip></span>
+          </div>
         </div>
-        <div class="cap-appearance-grid">
-          <label>背景透明度 (<span data-val="playerBgOpacity">82</span>%)
-            <input type="range" min="0" max="100" step="1" data-pref-range="playerBgOpacity">
-          </label>
-          <label>背景模糊度 (<span data-val="playerBgBlur">24</span>px)
-            <input type="range" min="0" max="60" step="1" data-pref-range="playerBgBlur">
-          </label>
+
+        <div class="cap-setting-card">
+          <div class="cap-setting-card-title">封面边框与光影</div>
+          <div class="cap-appearance-grid">
+            <label>图片填充
+              <select data-pref="coverFit" data-cap-select="segment">
+                <option value="cover">铺满</option>
+                <option value="contain">完整显示</option>
+              </select>
+            </label>
+            <label>封面底板
+              <select data-pref="coverPlate" data-cap-select="segment">
+                <option value="none">无</option>
+                <option value="solid">纯色</option>
+                <option value="glass">玻璃</option>
+              </select>
+            </label>
+            <label>边框样式
+              <select data-pref="coverBorderStyle" data-cap-select="segment">
+                <option value="solid">实线</option>
+                <option value="dashed">虚线</option>
+                <option value="double">双线</option>
+              </select>
+            </label>
+            <label>边框颜色
+              <input type="color" data-cover-color>
+            </label>
+            <label class="cap-range-field"><span class="cap-range-head"><span>边框宽度</span><span class="cap-range-pill"><span data-val="coverBorder"></span>px</span></span><input type="range" min="0" max="12" data-pref-range="coverBorder"></label>
+            <label class="cap-range-field"><span class="cap-range-head"><span>边框透明度</span><span class="cap-range-pill"><span data-val="coverOpacity"></span>%</span></span><input type="range" min="0" max="100" data-pref-range="coverOpacity"></label>
+            <label class="cap-range-field"><span class="cap-range-head"><span>投影强度</span><span class="cap-range-pill"><span data-val="coverShadow"></span>px</span></span><input type="range" min="0" max="40" data-pref-range="coverShadow"></label>
+          </div>
         </div>
       </details>
 
@@ -166,8 +210,13 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
         </label>
         <label>便签主题
           <select data-pref="paper">
-            <option value="white">极简纯白</option>
-            <option value="ink">暗夜墨笺</option>
+            <option value="white" data-cap-swatch="#f7f6f2">极简纯白</option>
+            <option value="cream" data-cap-swatch="#f5ecdc">暖霜米纸</option>
+            <option value="yellow" data-cap-swatch="#f7ecc2">奶油黄签</option>
+            <option value="sage" data-cap-swatch="#e8efe7">鼠尾草绿</option>
+            <option value="sakura" data-cap-swatch="#f8ecef">樱吹雪粉</option>
+            <option value="sky" data-cap-swatch="#e7f0f8">晴空蓝笺</option>
+            <option value="ink" data-cap-swatch="#252422">暗夜墨笺</option>
           </select>
         </label>
         <label>纸张底纹
@@ -443,7 +492,7 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
         if (!f) return;
         if (f.size > 25 * 1024 * 1024) throw Error("图片不能超过25MB");
         bgImageUrl = await saveBgImage(f);
-        if (bgTip) bgTip.textContent = '已应用背景图';
+        if (bgTip) bgTip.textContent = '已应用背景图'; uiToast('已应用自定义背景图', { doc: D, kind: 'success' });
         apply(p);
       } catch (e) {
         if (bgTip) bgTip.textContent = e.message;
@@ -460,7 +509,14 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
   for (const el of playerBox.querySelectorAll('[data-pref-range]')) {
     const k = el.dataset.prefRange; el.value = p[k];
     const label = playerBox.querySelector(`[data-val="${k}"]`);
-    const update = () => { if (label) label.textContent = el.value; };
+    const hostLabel = el.closest('label');
+    if (hostLabel) hostLabel.classList.add('cap-range-field');
+    const update = () => {
+      if (label) label.textContent = el.value;
+      const min = Number(el.min || 0), max = Number(el.max || 100), val = Number(el.value || 0);
+      const pct = max > min ? Math.max(0, Math.min(100, ((val - min) / (max - min)) * 100)) : 0;
+      el.style.setProperty('--cap-range-pct', pct.toFixed(1) + '%');
+    };
     update(); el.oninput = () => { p[k] = Number(el.value); update(); save(); };
   }
   async function refreshFonts() {
@@ -477,11 +533,11 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
     box.querySelector('[data-import-font]').onclick = () => file.click();
     file.onchange = async () => {
       try { const f = file.files?.[0]; if (!f) return; if (f.size > 25*1024*1024) throw Error('字体不能超过25MB');
-        const font = await saveFontFile(f); p[k] = font.id; await refreshFonts(); save(); setFontStatus('字体已导入');
+        const font = await saveFontFile(f); p[k] = font.id; await refreshFonts(); save(); setFontStatus('字体已导入'); uiToast('字体已导入并应用', { doc: D, kind: 'success' });
       } catch(e) { setFontStatus(e.message); } finally { file.value = ''; }
     };
     box.querySelector('[data-delete-font]').onclick = async () => {
-      const id = sel.value; if (!id || id === 'shared' || !W.confirm('删除共享字体？')) return;
+      const id = sel.value; if (!id || id === 'shared' || !await uiConfirm('删除后将从本地字体库移除该字体文件。', { doc: D, title: '删除共享字体', danger: true, confirmText: '删除' })) return;
       try { await deleteFont(id); if (p.sharedFontId === id) p.sharedFontId = ''; if (p.noteFontId === id) p.noteFontId = 'shared'; await refreshFonts(); save(); } catch(e) { setFontStatus(e.message); }
     };
   }
@@ -493,7 +549,7 @@ export function mountAppearance(settings, root, themeSelect, memoryRoot) {
     const status = msg => { statusNode.textContent = msg; };
     function commit(values) {
       const old = p; p = {...p, ...values};
-      try { apply(p); save(); sync(); status('已保存'); } catch(e) { p = old; apply(p); status(e.message); }
+      try { apply(p); save(); sync(); status('已保存'); uiToast('自定义样式已保存', { doc: D, kind: 'success' }); } catch(e) { p = old; apply(p); status(e.message); }
     }
     sync();
     fields.forEach((el,i) => { el.oninput = () => { try { apply({...p,...Object.fromEntries(fields.map((f,j)=>[keys[j],f.value]))}); status('预览中'); } catch(e) { status(e.message); } }; });

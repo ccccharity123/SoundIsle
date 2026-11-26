@@ -7,9 +7,7 @@ export function playerRect(v, size, insets = {}, bilingual = false) {
   const right = Math.max(mx, Math.min(v.w / 3, insets.right || 0));
   const top = Math.max(my, Math.min(v.h / 3, insets.top || 0));
   const reserved = Math.max(insets.bottom || 0, insets.composer || 0);
-  // A tall host composer must not collapse the player to zero height.
-  const minimum = Math.min(152, Math.max(0, v.h - top - my));
-  const bottom = Math.max(0, Math.min(v.h - top - minimum, my + reserved));
+  const bottom = Math.min(v.h - top, my + reserved);
   const available = Math.max(0, v.h - top - bottom);
   const desired = size === 'compact' ? (bilingual ? 170 : 152) :
     size === 'large' ? v.h * .85 : Math.max(340, v.h * .5);

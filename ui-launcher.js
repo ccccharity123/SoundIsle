@@ -21,7 +21,7 @@ export function mountLauncher({root, island, nav, onOpen, isPlayerOpen}) {
   const W=window, D=document;
   let storage; try {storage=W.localStorage;} catch {}
   let config=readLauncherConfig(storage);
-  let dead=false, hideTimer=0, raf=0, lastTap=0, lastTapSide='';
+  let dead=false, hideTimer=0, raf=0, lastTap=0, lastTapSide='', lastTop;
   const edgeButton=D.createElement('button');
   edgeButton.type='button';edgeButton.className='si-edge-handle';
   edgeButton.setAttribute('aria-label','展开声屿');edgeButton.title='展开声屿';
@@ -60,7 +60,8 @@ export function mountLauncher({root, island, nav, onOpen, isPlayerOpen}) {
   function locate(){
     if(dead)return;
     const v=viewport(W);
-    edgeButton.style.top=`${Math.max(v.y+30,Math.min(v.y+v.h-70,v.y+v.h*.45))}px`;
+    const top=Math.max(v.y+30,Math.min(v.y+v.h-70,v.y+v.h*.45));
+    if(top!==lastTop){lastTop=top;edgeButton.style.top=`${top}px`;}
   }
   function scheduleLocate(){if(dead||raf)return;raf=W.requestAnimationFrame(()=>{raf=0;locate();});}
   function onInput(e){
@@ -90,11 +91,7 @@ export function mountLauncher({root, island, nav, onOpen, isPlayerOpen}) {
   W.addEventListener('scroll',scheduleLocate,true);
   W.visualViewport?.addEventListener('resize',scheduleLocate);
   W.visualViewport?.addEventListener('scroll',scheduleLocate);
-  let observer;
-  if(typeof W.MutationObserver==='function'){
-    observer=new W.MutationObserver(scheduleLocate);
-    observer.observe(D.body,{childList:true,subtree:true});
-  }
+  // Edge handle depends only on viewport dimensions, not chat DOM mutations.
   island.addEventListener('pointerenter',wake);
   island.addEventListener('focus',wake);
   // 自动隐藏依赖全局触摸唤醒；完全隐藏无其他入口时保留贴边把手。
@@ -110,7 +107,7 @@ export function mountLauncher({root, island, nav, onOpen, isPlayerOpen}) {
     wake,
     destroy(){
       dead=true;W.clearTimeout(hideTimer);
-      if(raf)W.cancelAnimationFrame(raf);observer?.disconnect();
+      if(raf)W.cancelAnimationFrame(raf);
       D.removeEventListener('pointerdown',onInput);D.removeEventListener('pointerup',onTap);
       D.removeEventListener('keydown',onKey);D.removeEventListener('visibilitychange',onVisibility);
       W.removeEventListener('resize',scheduleLocate);W.removeEventListener('scroll',scheduleLocate,true);

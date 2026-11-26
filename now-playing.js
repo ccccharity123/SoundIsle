@@ -39,7 +39,8 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
   const motion = media('(prefers-reduced-motion: reduce)');
   const transparency = media('(prefers-reduced-transparency: reduce)');
   const reduce = () => Boolean((motion && motion.matches) || (transparency && transparency.matches) ||
-    false);
+    (W.navigator.deviceMemory > 0 && W.navigator.deviceMemory <= 4));
+  let openedAt = -Infinity;
   let viewportFrame = 0;
   let observedComposer = null;
   const composerObserver = W.ResizeObserver ? new W.ResizeObserver(scheduleViewport) : null;
@@ -246,9 +247,23 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
   }
   function animateFrom(rect, target = panel) {
     if (reduce() || !target.animate) return;
-    // Never derive an opening transform from a hidden or moving island.
-    target.animate([{ opacity: .55 }, { opacity: 1 }],
-      { duration: 180, easing: 'ease-out' });
+    if (mobile) {
+      if (target !== panel) return;
+      target.animate([
+        { transform: 'translateY(18px) scale(0.97)', opacity: 0.25 },
+        { transform: 'none', opacity: 1 }
+      ], { duration: 290, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' });
+      return;
+    }
+    if (!rect || !rect.width || !rect.height) return;
+    const bounds = target.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return;
+    target.animate([
+      { transformOrigin:'top left',
+        transform:'translate(' + (rect.left - bounds.left) + 'px,' + (rect.top - bounds.top) +
+          'px) scale(' + (rect.width / bounds.width) + ',' + (rect.height / bounds.height) + ')', opacity:.65 },
+      { transformOrigin:'top left', transform:'none', opacity:1 }
+    ], { duration:320, easing:'cubic-bezier(0.32, 0.72, 0, 1)' });
   }
   function setSize(value) {
     if (size === value) return;
@@ -280,9 +295,7 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
       closingAnim = null;
       panel.classList.remove('is-closing');
       panel.hidden = true;
-      panel.getAnimations?.().forEach(a => a.cancel());
-      sheetDrag = null;
-      panel.classList.remove('is-sheet-dragging');
+      D.body.removeAttribute('data-cap-player-open');
       panel.style.transform = '';
       if (composerObserver) composerObserver.disconnect();
       observedComposer = null;
@@ -295,7 +308,7 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
     panel.classList.add('is-closing');
     closingAnim = panel.animate([
       { transform: panel.style.transform || 'none', opacity: 1 },
-      { transform: 'none', opacity: 0 }
+      { transform: 'translateY(18px) scale(0.965)', opacity: 0 }
     ], { duration: 185, easing: 'cubic-bezier(0.32, 0.72, 0, 1)', fill: 'forwards' });
     closingAnim.onfinish = finish;
     closingAnim.oncancel = () => { closingAnim = null; panel.classList.remove('is-closing'); };
@@ -339,7 +352,7 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
   qualityButton.onclick = () => openChoices(qualityButton, '播放音质', Object.keys(qualityLabels).map(level => ({
     label: qualityLabels[level], checked: state().preferredQuality === level, action: () => { if (quality) quality(level); }
   })));
-  q('[data-settings]').onclick = () => openAux('settings');
+  q('[data-settings]').onclick = event => { event.stopPropagation(); openAux('settings'); };
   q('[data-library]').onclick = () => openAux('library');
   q('[data-mode]').onclick = switchMode;
   moreButton.onclick = () => openChoices(moreButton, '播放工具', [
@@ -473,12 +486,14 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
     colorProbe.removeAttribute('src');
     colorProbe=null;
   }
+  const defaultCover = new URL('./sound-isle-cover.png', import.meta.url).href;
   img.onload=()=>{
     img.classList.add('is-loaded');
     if (glowImg && img.src) { glowImg.src = img.src; glowImg.hidden = false; }
   };
   img.onerror=()=>{
     img.classList.remove('is-loaded');
+    if(img.src !== defaultCover){img.hidden=false;img.src=defaultCover;return;}
     img.hidden=true;
     img.alt='封面加载失败';
     if (glowImg) { glowImg.hidden = true; glowImg.removeAttribute('src'); }
@@ -685,16 +700,18 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
       if(!dead&&task.active()){lyricStatus='error';drawLyrics();}
     }
   }
+  let lastTimePaint=0;
   function updateTime(){
     if(D.hidden)return;
     emitIsland();
     if(panel.hidden)return;
+    const now=Date.now();if(!dragging && now-lastTimePaint<180)return;lastTimePaint=now;
     const time=audio.currentTime||0,duration=Number.isFinite(audio.duration)?audio.duration:0;
-    seek.max=duration;
+    if(Number(seek.max)!==duration)seek.max=duration;
     if(!dragging)seek.value=time;
-    seek.style.setProperty('--cap-progress',(duration>0?Math.min(100,Math.max(0,time/duration*100)):0)+'%');
-    q('[data-elapsed]').textContent=clock(time);
-    q('[data-duration]').textContent=clock(audio.duration);
+    if(!dragging)seek.style.setProperty('--cap-progress',(duration>0?Math.min(100,Math.max(0,time/duration*100)):0)+'%');
+    if(!dragging){const elapsed=q('[data-elapsed]');const value=clock(time);if(elapsed.textContent!==value)elapsed.textContent=value;}
+    const total=q('[data-duration]');const value=clock(audio.duration);if(total.textContent!==value)total.textContent=value;
     const index = currentLyricIndex(time);
     const current = lines[index];
     const text = current ? current.text : '';
@@ -709,7 +726,6 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
       panel.dataset.bilingual = bilingual;
       if (size === 'compact') fitViewport();
     }
-    updateVolume();
     if(tab!=='lyrics'||detail.hidden||!lines.length||index===active)return;
     detail.children[active]?.classList.remove('active');
     active=index;
@@ -778,6 +794,8 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
         const url=new URL(track?.coverUrl);
         if(url.protocol==='https:'||url.protocol==='http:'){img.hidden=false;img.src=url.href;coverUrl=url.href;}
       }catch{}
+      if(!coverUrl){img.hidden=false;img.src=defaultCover;}
+      if(img.complete && img.naturalWidth)img.onload();
     }
     syncBackdrop();
     if(tab==='queue')drawQueue();
@@ -810,6 +828,7 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
   let sheetDrag = null;
   const grabber = q('.cap-fp-grabber');
   function onSheetDown(event) {
+    if (Date.now()-openedAt < 450) return;
     if (event.button != null && event.button !== 0) return;
     if (event.target.closest('button, input, select, textarea, a, .cap-fp-detail, .cap-fp-inline')) return;
     sheetDrag = {
@@ -838,7 +857,7 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
     }
     sheetDrag.dy = dy;
     const damped = dy < 0 && size === 'large' ? dy * 0.25 : dy * 0.88;
-    panel.style.transform = `translateY(${Math.round(Math.max(-48, Math.min(48, damped)))}px)`;
+    panel.style.transform = `translateY(${Math.round(damped)}px)`;
     event.preventDefault();
   }
   function onSheetEnd(event) {
@@ -854,7 +873,6 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
     const idx = sheetOrder.indexOf(size);
     const downThreshold = size === 'compact' ? 42 : 56;
     const upThreshold = size === 'compact' ? -36 : -48;
-    if (event.type !== 'pointerup') { panel.style.transform = ''; return; }
     if (d.dy > downThreshold || velocity > 0.45) {
       if (idx > 0) {
         panel.style.transform = '';
@@ -872,12 +890,11 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
   panel.addEventListener('pointerdown', onSheetDown);
   panel.addEventListener('pointermove', onSheetMove);
   panel.addEventListener('pointerup', onSheetEnd);
-  panel.addEventListener('pointercancel', onSheetEnd);
-  panel.addEventListener('lostpointercapture', onSheetEnd);
+  panel.addEventListener('pointercancel', () => {sheetDrag=null;panel.classList.remove('is-sheet-dragging');panel.style.transform='';});
   if (grabber) {
     grabber.onclick = event => {
       if (suppressSheetClick) { suppressSheetClick = false; event.preventDefault(); return; }
-      closePanel();
+      if(Date.now()-openedAt >= 450) closePanel();
     };
   }
 
@@ -928,7 +945,9 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
       cancelCloseAnim();
       if (!panel.hidden) return;
       const island = D.querySelector('#capricorn-hub .cap-island');
+      openedAt=Date.now();
       panel.hidden = false;
+      D.body.dataset.capPlayerOpen='true';
       fitViewport();
       manualScrollUntil = 0;
       showTab(tab || (size === 'large' ? 'lyrics' : ''));
@@ -961,6 +980,7 @@ export function mountNowPlaying({ D, W, audio, shared, state, toggle, next, play
       for(const event of events)audio.removeEventListener(event,event==='timeupdate'?onTime:refresh);
       img.onload=img.onerror=null;
       img.removeAttribute('src');
+      D.body.removeAttribute('data-cap-player-open');
       panel.remove();
     }
   };

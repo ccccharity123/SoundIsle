@@ -1,4 +1,5 @@
 /* 声屿独立版：只初始化音乐系统，绝不初始化拾忆或注册生成拦截器。 */
+import { getChatIdentity } from './host-context.js';
 import { icon } from './icons.js';
 import { startMusic } from './music.js';
 import { mountCloud } from './cloud.js';
@@ -52,6 +53,7 @@ root.innerHTML = `
     <div id="cap-hub-content" class="cap-content" role="tabpanel" aria-label="声屿曲库"></div>
   </nav>
 `;
+delete D.body.dataset.capVisualLite;
 D.body.append(root);
 const nav = root.querySelector('nav');
 const island = root.querySelector('.cap-island');
@@ -69,11 +71,7 @@ themeSelect.onchange = () => {
   try { W.localStorage.setItem('capricorn_theme',themeSelect.value); } catch {}
 };
 const context = () => W.SillyTavern?.getContext?.() || {};
-const chatIdentity = () => {
-  const c = context();
-  return { scope: [c.groupId ?? c.group_id ?? c.characterId ?? c.character_id ?? 'none',
-    c.getCurrentChatId?.() ?? c.chatId ?? c.chatMetadata?.chat_id ?? 'none'].join(':') };
-};
+const chatIdentity = () => getChatIdentity(context());
 const scope = () => chatIdentity().scope;
 const shared = { flags: {music:true,memory:false}, scope, chatIdentity, recallLocked: false };
 let destroyed = false, music, cloud, cleanupNetease, appearance, cleanupMobile, launcher, settingsUi;
@@ -123,15 +121,17 @@ root.addEventListener('capricorn-island-artwork',artwork);
 shared.onIslandUpdate = ({playing,text,title,coverUrl:cover,translation}) => {
   if (destroyed) return;
   if (coverUrl !== (cover || '')) { coverUrl = cover || ''; artwork(); }
+  const playbackChanged=island.dataset.playing!==String(playing);
+  const bilingualChanged=island.dataset.bilingual!==String(Boolean(playing&&translation));
   island.dataset.playing=playing?'true':'false';
   island.title=playing?`${title||'正在播放'} · 声屿`:'声屿（点击打开播放器）';
   const translate=playing?(translation||''):'';
-  islandTranslation.textContent=translate;
+  if(islandTranslation.textContent!==translate)islandTranslation.textContent=translate;
   islandTranslation.hidden=!translate;
   island.dataset.bilingual=String(Boolean(translate));
   if (text && playing && islandLyric.textContent!==text) islandLyric.textContent=text;
-  cleanupMobile?.fit?.();
-  launcher?.onPlayback(playing);
+  if (playbackChanged || bilingualChanged) cleanupMobile?.fit?.();
+  if (playbackChanged) launcher?.onPlayback(playing);
 };
 
 const libraryNav=D.createElement('div');
@@ -183,7 +183,12 @@ function openPlayer(){
   if (!music)return openHub('library');
   close();music.openPlayer();island.setAttribute('aria-expanded','true');launcher?.onPanelChange();
 }
-island.onclick=()=>{
+let lastIslandClick=-Infinity;
+island.onclick=(event)=>{
+  event.stopPropagation();
+  const now=performance.now();
+  if(now-lastIslandClick<450)return;
+  lastIslandClick=now;
   if(cleanupMobile?.consumeDrag())return;
   if(music?.isPlayerOpen()){music.closePlayer();return;}
   openPlayer();
@@ -308,6 +313,11 @@ async function boot(){
   follow.firstElementChild.checked=W.localStorage.getItem('capricorn_follow_character')!=='off';
   follow.firstElementChild.onchange=()=>W.localStorage.setItem('capricorn_follow_character',follow.firstElementChild.checked?'on':'off');
   services.append(follow);
+  const story=D.createElement('label');
+  story.innerHTML='<input type="checkbox"> 跟随剧情 BGM';
+  story.firstElementChild.checked=W.localStorage.getItem('capricorn_follow_story')!=='off';
+  story.firstElementChild.onchange=()=>W.localStorage.setItem('capricorn_follow_story',story.firstElementChild.checked?'on':'off');
+  services.append(story);
   settings.append(services);
   const controls=D.createElement('section');
   controls.dataset.capSettingsSection='backup';

@@ -1,85 +1,217 @@
+import { icon } from './icons.js';
 import { popover } from './ui-popover.js';
 
-const pages = [
-  ['appearance', '外观'], ['background', '背景'], ['fonts', '字体/CSS'],
-  ['services', '服务'], ['backup', '备份'],
+const SETTING_GROUPS = [
+  {
+    title: '核心模块',
+    items: [
+      { id: 'memory', label: '拾忆 · 剧情记忆', subtitle: '便签、表格、留痕档案与归档', icon: 'bookmark' },
+      { id: 'music', label: '声屿 · 音乐播放', subtitle: '播放器、曲库与跟随剧情切歌', icon: 'music' },
+    ],
+  },
+  {
+    title: '视觉与交互',
+    items: [
+      { id: 'appearance', label: '外观与悬浮控件', subtitle: '日夜模式、材质、悬浮球与唤起', icon: 'swatches' },
+      { id: 'background', label: '背景与封面', subtitle: '专辑铺满、模糊遮罩与封面边框', icon: 'image' },
+      { id: 'fonts', label: '字体与自定义 CSS', subtitle: '导入 TTF 字体与样式微调', icon: 'note-pencil' },
+    ],
+  },
+  {
+    title: '连接与系统',
+    items: [
+      { id: 'services', label: '音源与运行服务', subtitle: '隐私模式、GD/网易云与运行诊断', icon: 'sliders-horizontal' },
+      { id: 'preset', label: '预设与隐藏正则', subtitle: '酒馆预设条目安装与标签隐藏', icon: 'package' },
+      { id: 'backup', label: '数据备份与索引', subtitle: '统一导出恢复与重建检索缓存', icon: 'archive' },
+    ],
+  },
 ];
 
-export function mountSettings(root) {
-  const document = root.ownerDocument;
-  const tabs = document.createElement('div');
-  const views = document.createElement('div');
-  const groups = new Map();
-  tabs.className = 'cap-settings-tabs';
-  tabs.setAttribute('role', 'tablist');
-  tabs.setAttribute('aria-label', '声屿设置分类');
-  views.className = 'cap-settings-views';
+const ALL_ITEMS = SETTING_GROUPS.flatMap(g => g.items);
 
-  function activate(id, focus) {
-    popover.closeWithin(views);
-    for (const [key, entry] of groups) {
-      const current = key === id;
-      entry.tab.setAttribute('aria-selected', String(current));
-      entry.tab.tabIndex = current ? 0 : -1;
-      entry.view.hidden = !current;
+export function mountSettings(root, options = {}) {
+  const D = root.ownerDocument;
+  const W = D.defaultView;
+  const getSummary = typeof options.getSummary === 'function' ? options.getSummary : () => '';
+
+  const home = D.createElement('div');
+  home.className = 'cap-settings-home';
+  home.setAttribute('aria-label', '摩羯座设置首页');
+
+  const subbar = D.createElement('div');
+  subbar.className = 'cap-settings-subhead';
+  subbar.hidden = true;
+
+  const backBtn = D.createElement('button');
+  backBtn.type = 'button';
+  backBtn.className = 'cap-settings-back';
+  backBtn.innerHTML = `${icon('left', 16)}<span>设置</span>`;
+  backBtn.onclick = () => showHome(true);
+
+  const subTitle = D.createElement('strong');
+  subTitle.className = 'cap-settings-subtitle';
+
+  const spacer = D.createElement('span');
+  spacer.className = 'cap-settings-subspacer';
+  spacer.setAttribute('aria-hidden', 'true');
+
+  subbar.append(backBtn, subTitle, spacer);
+
+  const views = D.createElement('div');
+  views.className = 'cap-settings-views';
+  views.hidden = true;
+
+  const groups = new Map();
+  let currentId = 'home';
+
+  for (const group of SETTING_GROUPS) {
+    const sec = D.createElement('div');
+    sec.className = 'cap-settings-group';
+    const heading = D.createElement('div');
+    heading.className = 'cap-settings-group-title';
+    heading.textContent = group.title;
+    sec.append(heading);
+
+    const card = D.createElement('div');
+    card.className = 'cap-settings-list-card';
+
+    for (const item of group.items) {
+      const row = D.createElement('button');
+      row.type = 'button';
+      row.className = 'cap-settings-row';
+      row.dataset.settingsTarget = item.id;
+
+      const ico = D.createElement('span');
+      ico.className = 'cap-settings-row-ico';
+      ico.setAttribute('aria-hidden', 'true');
+      ico.innerHTML = icon(item.icon, 17);
+
+      const text = D.createElement('span');
+      text.className = 'cap-settings-row-text';
+      const title = D.createElement('strong');
+      title.textContent = item.label;
+      const sub = D.createElement('small');
+      sub.textContent = item.subtitle;
+      text.append(title, sub);
+
+      const summary = D.createElement('span');
+      summary.className = 'cap-settings-row-summary';
+
+      const chev = D.createElement('span');
+      chev.className = 'cap-settings-row-chev';
+      chev.setAttribute('aria-hidden', 'true');
+      chev.innerHTML = icon('right', 14);
+
+      row.append(ico, text, summary, chev);
+      row.onclick = () => activate(item.id, false);
+      card.append(row);
+
+      const view = D.createElement('section');
+      view.id = 'cap-settings-' + item.id;
+      view.className = 'cap-settings-view';
+      view.hidden = true;
+      views.append(view);
+
+      groups.set(item.id, { item, row, summary, view });
     }
-    if (focus) groups.get(id).tab.focus();
+
+    sec.append(card);
+    home.append(sec);
   }
 
-  for (const [id, label] of pages) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.id = 'cap-settings-tab-' + id;
-    button.textContent = label;
-    button.setAttribute('role', 'tab');
-    const view = document.createElement('section');
-    view.id = 'cap-settings-' + id;
-    view.className = 'cap-settings-view';
-    view.setAttribute('role', 'tabpanel');
-    view.setAttribute('aria-labelledby', button.id);
-    button.setAttribute('aria-controls', view.id);
-    button.onclick = () => activate(id, false);
-    groups.set(id, { tab: button, view });
-    tabs.append(button);
-    views.append(view);
+  function refreshSummaries() {
+    for (const [id, entry] of groups) {
+      let info = '';
+      try { info = getSummary(id) || ''; } catch {}
+      if (typeof info === 'object' && info) {
+        if (entry.summary.textContent !== (info.text || '')) entry.summary.textContent = info.text || '';
+        if (entry.summary.dataset.tone !== (info.tone || '')) entry.summary.dataset.tone = info.tone || '';
+      } else {
+        if (entry.summary.textContent !== String(info || '')) entry.summary.textContent = String(info || '');
+        if (entry.summary.dataset.tone) entry.summary.dataset.tone = '';
+      }
+      if (entry.summary.hidden !== !entry.summary.textContent) entry.summary.hidden = !entry.summary.textContent;
+    }
+  }
+
+  function showHome(focusBack = false) {
+    popover.closeWithin(views);
+    const prev = currentId;
+    currentId = 'home';
+    root.dataset.settingsPage = 'home';
+    subbar.hidden = true;
+    views.hidden = true;
+    for (const entry of groups.values()) entry.view.hidden = true;
+    home.hidden = false;
+    home.classList.remove('is-pop');
+    if (prev !== 'home') {
+      void home.offsetWidth;
+      home.classList.add('is-pop');
+    }
+    refreshSummaries();
+    root.scrollTop = 0;
+    if (focusBack && groups.has(prev)) {
+      try { groups.get(prev).row.focus({ preventScroll: true }); } catch {}
+    }
+  }
+
+  function activate(id, focus = false) {
+    if (!groups.has(id)) {
+      showHome(false);
+      return;
+    }
+    popover.closeWithin(views);
+    currentId = id;
+    root.dataset.settingsPage = id;
+    home.hidden = true;
+    subbar.hidden = false;
+    views.hidden = false;
+    const entry = groups.get(id);
+    subTitle.textContent = entry.item.label;
+    for (const [key, g] of groups) {
+      g.view.hidden = key !== id;
+    }
+    entry.view.classList.remove('is-push');
+    void entry.view.offsetWidth;
+    entry.view.classList.add('is-push');
+    root.scrollTop = 0;
+    if (focus) {
+      try { backBtn.focus({ preventScroll: true }); } catch {}
+    }
   }
 
   function classify() {
     for (const node of Array.from(root.children)) {
-      if (node === tabs || node === views) continue;
+      if (node === home || node === subbar || node === views) continue;
       const group = groups.get(node.dataset.capSettingsSection) || groups.get('services');
       group.view.append(node);
     }
   }
-  tabs.onkeydown = event => {
-    const buttons = Array.from(tabs.children);
-    const index = buttons.indexOf(event.target);
-    if (index < 0) return;
-    let next;
-    switch (event.key) {
-      case 'ArrowLeft': next = (index + buttons.length - 1) % buttons.length; break;
-      case 'ArrowRight': next = (index + 1) % buttons.length; break;
-      case 'Home': next = 0; break;
-      case 'End': next = buttons.length - 1; break;
-      default: return;
-    }
-    event.preventDefault();
-    activate(pages[next][0], true);
-  };
-  root.prepend(tabs, views);
+
+  root.prepend(home, subbar, views);
   classify();
-  activate('appearance', false);
+  showHome(false);
   root.classList.add('cap-settings-paged');
-  const Observer = document.defaultView.MutationObserver;
+
+  const Observer = W?.MutationObserver;
   const observer = typeof Observer === 'function' ? new Observer(classify) : null;
   if (observer) observer.observe(root, { childList: true });
+
   return {
+    activate(id) { activate(id, false); },
+    home() { showHome(false); },
+    current: () => currentId,
+    isHome: () => currentId === 'home',
+    refreshSummaries,
+    sync() { refreshSummaries(); },
     destroy() {
       if (observer) observer.disconnect();
       for (const entry of groups.values()) root.append(...entry.view.children);
-      tabs.remove();
+      home.remove();
+      subbar.remove();
       views.remove();
       root.classList.remove('cap-settings-paged');
+      delete root.dataset.settingsPage;
     },
   };
 }
