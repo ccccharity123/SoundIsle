@@ -1,6 +1,6 @@
 import { createPlaybackCheckpoint } from './music-checkpoint.js';
 import { createBgmIndex } from './bgm-index.js';
-import { commitMusicBackup } from './backup.js';
+import { commitMusicBackup } from './sound-backup.js';
 import { createLatestTask, withMusicTimeout } from './music-tasks.js';
 import { icon } from './icons.js';
 import { closeLibraryMenus, libraryButton, libraryMenu } from './ui-library.js';
